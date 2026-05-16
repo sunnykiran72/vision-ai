@@ -13,3 +13,5 @@ def test_healthcheck() -> None:
     assert payload["service"] == "Glamify AI"
     assert payload["metadata"]["environment"] == "local"
     assert "health" in payload["metadata"]["available_api_groups"]
+    assert "tryon" in payload["metadata"]["configured_domains"]
+    assert "upscale" in payload["metadata"]["configured_domains"]

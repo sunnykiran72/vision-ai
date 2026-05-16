@@ -6,13 +6,12 @@ from app.utils.logging import configure_logging
 
 
 def create_app() -> FastAPI:
-    settings = get_settings()
-    configure_logging(settings.log_level)
-
+    get_settings();
+    configure_logging("INFO");
     app = FastAPI(
-        title=settings.app_name,
-        debug=settings.debug,
-        version=settings.app_version,
+        title="Glamify AI",
+        debug=True,
+        version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )

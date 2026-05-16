@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-
 from app.routes.health import router as health_router
 from app.routes.tryon import router as tryon_router
 from app.routes.upscale import router as upscale_router
@@ -12,3 +11,4 @@ router.include_router(wardrobe_router, tags=["wardrobe"])
 router.include_router(user_validation_router, tags=["user-validation"])
 router.include_router(tryon_router, tags=["tryon"])
 router.include_router(upscale_router, tags=["upscale"])
+  

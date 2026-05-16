@@ -7,20 +7,20 @@ from app.models.health import HealthMetadata, HealthResponse
 
 
 def build_health_response(settings: Settings) -> HealthResponse:
+    configured_domains: list[str] = []
+    if settings.jwt_access_secret:
+        configured_domains.append("security")
+    if settings.azure_storage_connection_string and settings.azure_storage_container:
+        configured_domains.append("storage")
+    if settings.tryon_model_path or settings.tryon_lora_path:
+        configured_domains.append("tryon")
+    if settings.upscale_model_path:
+        configured_domains.append("upscale")
+
     metadata = HealthMetadata(
         environment=settings.app_env,
-        version=settings.app_version,
+        version="0.1.0",
         python_version=platform.python_version(),
-        host=settings.host,
-        port=settings.port,
-        configured_services=[
-            "minicpm" if settings.minicpm_service_url else "minicpm_unconfigured",
-            (
-                "azure_storage"
-                if settings.azure_storage_connection_string
-                else "azure_storage_unconfigured"
-            ),
-        ],
         available_api_groups=[
             "health",
             "wardrobe",
@@ -28,9 +28,10 @@ def build_health_response(settings: Settings) -> HealthResponse:
             "tryon",
             "upscale",
         ],
+        configured_domains=configured_domains,
     )
     return HealthResponse(
         status="ok",
-        service=settings.app_name,
+        service="glamify-vision-ai",
         metadata=metadata,
     )

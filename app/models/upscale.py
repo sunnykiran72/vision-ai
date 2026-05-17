@@ -1,13 +1,31 @@
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field, HttpUrl
+
+from app.models.common import ApiResponse
+
+
+class UpscaleMetric(StrEnum):
+    TWO_K = "2k"
+    FOUR_K = "4k"
 
 
 class UpscaleRequest(BaseModel):
-    image_url: str = Field(..., description="Public image URL")
-    target_long_edge: int = Field(default=2048, ge=512, le=4096)
+    image_url: HttpUrl = Field(..., description="Public HTTP(S) URL for the input image")
+    metric: UpscaleMetric = Field(default=UpscaleMetric.TWO_K, description="Target output preset")
+    output_file_name: str | None = Field(
+        default=None,
+        description="Optional output filename to use for the generated file",
+    )
 
 
-class UpscaleResponse(BaseModel):
-    status: str
-    message: str
-    feature: str
+class UpscaleResponseData(BaseModel):
+    url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
+
+class UpscaleResponse(ApiResponse[UpscaleResponseData]):
+    data: UpscaleResponseData

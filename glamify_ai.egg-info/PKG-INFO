@@ -1,0 +1,77 @@
+Metadata-Version: 2.4
+Name: glamify-ai
+Version: 0.1.0
+Summary: Single-container GPU API for wardrobe and try-on workflows
+Requires-Python: <3.14,>=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: azure-storage-blob<13.0,>=12.26
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: PyJWT<3.0,>=2.9
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Requires-Dist: pydantic<3.0,>=2.8
+Requires-Dist: pydantic-settings<3.0,>=2.4
+Requires-Dist: python-multipart<1.0,>=0.0.9
+Requires-Dist: httpx<1.0,>=0.27
+Requires-Dist: pillow<12.0,>=10.4
+Requires-Dist: structlog<26.0,>=24.4
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
+Requires-Dist: pytest-asyncio<1.0,>=0.23; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.6; extra == "dev"
+Requires-Dist: mypy<2.0,>=1.11; extra == "dev"
+
+# Glamify AI
+
+Single-container GPU API for the wardrobe and try-on pipeline.
+
+## Principles
+
+- One container
+- One service boundary
+- Focused on the 4 GPU-backed APIs only
+- Simple app-first structure
+- `uv`-first Python workflow
+- Reproducible local setup
+
+## Layout
+
+```text
+ai/
+  app/
+  scripts/
+  tests/
+  docs/
+  pyproject.toml
+  Makefile
+  uv.lock
+```
+
+## Local development
+
+```bash
+./scripts/bootstrap.sh
+uv run uvicorn app.main:app --reload
+```
+
+## Standard workflow
+
+```bash
+make setup
+make dev
+make test
+make lint
+```
+
+## Tooling choice
+
+- `uv` manages the virtual environment and dependency sync
+- `uv run` executes project commands inside the managed environment
+- `uvicorn` remains the ASGI server for FastAPI
+
+## First implementation track
+
+1. Define API contracts
+2. Implement `/v1/user_validation`
+3. Implement `/v1/wardrobe`
+4. Implement `/v1/tryon`
+5. Implement `/v1/upscale`

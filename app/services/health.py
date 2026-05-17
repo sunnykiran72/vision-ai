@@ -3,7 +3,14 @@ from __future__ import annotations
 import platform
 
 from app.config import Settings
-from app.models.health import HealthMetadata, HealthResponse
+from app.models.health import (
+    HealthMetadata,
+    HealthResponse,
+    RuntimeMetadata,
+    RuntimeQueueMetadata,
+    RuntimeRunnerMetadata,
+)
+from app.runtime.upscale_runtime import get_upscale_runtime_status
 
 
 def build_health_response(settings: Settings) -> HealthResponse:
@@ -17,6 +24,7 @@ def build_health_response(settings: Settings) -> HealthResponse:
     if settings.upscale_model_path:
         configured_domains.append("upscale")
 
+    upscale_runtime = get_upscale_runtime_status(settings)
     metadata = HealthMetadata(
         environment=settings.app_env,
         version="0.1.0",
@@ -29,6 +37,19 @@ def build_health_response(settings: Settings) -> HealthResponse:
             "upscale",
         ],
         configured_domains=configured_domains,
+        runtimes={
+            "upscale": RuntimeMetadata(
+                runner=RuntimeRunnerMetadata(
+                    loaded=upscale_runtime.runner.loaded,
+                    backend=upscale_runtime.runner.backend,
+                ),
+                queue=RuntimeQueueMetadata(
+                    active_jobs=upscale_runtime.coordinator.active_jobs,
+                    waiting_jobs=upscale_runtime.coordinator.waiting_jobs,
+                    max_queue_size=upscale_runtime.coordinator.max_queue_size,
+                ),
+            ),
+        },
     )
     return HealthResponse(
         status="ok",

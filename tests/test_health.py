@@ -10,7 +10,7 @@ def test_healthcheck() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["service"] == "Glamify AI"
+    assert payload["service"] == "glamify-vision-ai"
     assert payload["metadata"]["environment"] == "local"
     assert "health" in payload["metadata"]["available_api_groups"]
     assert "tryon" in payload["metadata"]["configured_domains"]

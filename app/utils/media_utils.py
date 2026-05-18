@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,14 +51,13 @@ def ensure_filename_extension(filename: str, extension: str = DEFAULT_IMAGE_EXTE
 
 def build_job_media_paths(
     root_dir: Path,
-    output_filename: str | None = None,
     input_extension: str = DEFAULT_IMAGE_EXTENSION,
     output_extension: str = DEFAULT_IMAGE_EXTENSION,
 ) -> JobMediaPaths:
     job_id = uuid.uuid4().hex
     job_dir = ensure_directory(root_dir / job_id)
     input_name = ensure_filename_extension("input", input_extension)
-    output_name = ensure_filename_extension(output_filename or "output", output_extension)
+    output_name = ensure_filename_extension("output", output_extension)
     return JobMediaPaths(
         job_id=job_id,
         job_dir=job_dir,
@@ -126,3 +126,7 @@ def write_bytes_to_file(path: Path, content: bytes) -> Path:
     ensure_directory(path.parent)
     path.write_bytes(content)
     return path
+
+
+def cleanup_directory(path: Path) -> None:
+    shutil.rmtree(path, ignore_errors=True)

@@ -12,6 +12,12 @@ Meaning:
 
 This is the preferred baseline for large GPU deployments such as H100-class nodes.
 
+Current decision note:
+
+- keep the in-process runner for now
+- use it as the shared baseline for the first implementation wave
+- revisit the runtime boundary only when stricter stuck-job recovery is required
+
 ## Request isolation
 
 Every request must remain isolated from every other request.
@@ -136,6 +142,23 @@ The worker pool count should remain internal and tunable by deployment, not by A
 ### 3. Startup warmup
 
 Use startup warmup to preload required runtimes so concurrency behavior starts from a warm system state.
+
+### 4. Worker process boundary
+
+If a runtime must support hard stuck-job recovery, move actual model execution into a separate worker process boundary.
+
+Keep:
+
+- route layer
+- service layer
+- request isolation
+- storage/upload flow
+
+Change only:
+
+- where model execution lives
+
+This gives stronger recovery behavior without changing the public API contract.
 
 ## Public API boundary
 

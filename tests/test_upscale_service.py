@@ -74,6 +74,24 @@ def test_run_upscale_request_returns_success_without_storage(
         lambda *_args: ImmediateCoordinator(),
     )
 
+    class FakeStorageClient:
+        def __init__(self, _settings: Settings):
+            self.is_configured = True
+
+        def upload_file(
+            self,
+            file_path: Path,
+            *,
+            object_name: str,
+            content_type: str | None = None,
+        ) -> str:
+            assert file_path.exists()
+            assert object_name.endswith("/output.jpg")
+            assert content_type == "image/jpeg"
+            return f"https://example.com/{object_name}"
+
+    monkeypatch.setattr(upscale_service, "AzureStorageClient", FakeStorageClient)
+
     settings = Settings(
         UPSCALE_WORK_ROOT=str(tmp_path),
         UPSCALE_MODEL_VARIANT="seedvr2-test.safetensors",
@@ -82,17 +100,17 @@ def test_run_upscale_request_returns_success_without_storage(
         {
             "image_url": "https://example.com/image.png",
             "metric": "2k",
-            "output_file_name": "result.jpg",
         },
     )
 
     response = upscale_service.run_upscale_request(payload, settings=settings)
 
     assert response.status == 200
-    assert response.data.url is None
+    assert response.data.url is not None
     assert response.data.metadata["feature"] == "upscale"
     assert response.data.metadata["action"] == "upscaled"
     assert response.data.metadata["output"]["width"] == 2048
+    assert not any(tmp_path.iterdir())
 
 
 def _build_png_bytes(width: int, height: int) -> bytes:

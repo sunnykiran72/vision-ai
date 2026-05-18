@@ -19,7 +19,6 @@ def test_protected_route_requires_bearer_token() -> None:
         json={
             "image_url": "https://example.com/image.png",
             "metric": "2k",
-            "output_file_name": "result.jpg",
         },
     )
     assert response.status_code == 401
@@ -33,7 +32,6 @@ def test_invalid_token_is_rejected() -> None:
         json={
             "image_url": "https://example.com/image.png",
             "metric": "2k",
-            "output_file_name": "result.jpg",
         },
     )
     assert response.status_code == 401
@@ -62,7 +60,6 @@ def test_valid_token_allows_access(
         json={
             "image_url": "https://example.com/image.png",
             "metric": "2k",
-            "output_file_name": "result.jpg",
         },
     )
     assert response.status_code == 200

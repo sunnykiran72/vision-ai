@@ -11,11 +11,11 @@ from app.utils.logging import configure_logging
 
 
 def create_app() -> FastAPI:
-    settings = get_settings()
     configure_logging("INFO")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        settings = get_settings()
         if settings.startup_warmup_enabled:
             warmup_resident_runtimes(settings)
         yield

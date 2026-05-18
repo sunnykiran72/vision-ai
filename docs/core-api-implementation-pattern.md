@@ -80,8 +80,6 @@ Recommended storage key pattern:
 {tenant_id}/{job_id}/output.jpg
 ```
 
-`output_file_name` may exist as a user-facing display hint, but it must not become the actual storage key.
-
 ## Validation standard
 
 Pydantic is the standard validation layer for this service.

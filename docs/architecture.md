@@ -30,6 +30,8 @@
 - Startup warmup is the preferred model-loading strategy so first user request is predictable
 - Public API contracts should stay minimal and product-facing
 - Runtime tuning details such as offload mode, subprocess execution, and model residency should stay internal
+- Current implementation choice is a resident in-process runner
+- Future production-hardening option is a worker process boundary for model execution without changing route/service contracts
 
 ## Reference implementation
 

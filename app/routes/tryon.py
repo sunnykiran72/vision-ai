@@ -1,12 +1,24 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
+from fastapi.concurrency import run_in_threadpool
 
+from app.constants import http_status
 from app.dependencies.auth import CurrentAuth
-from app.models.tryon import TryonResponse
-from app.services.tryon import build_tryon_placeholder
+from app.models.tryon import TryonRequest, TryonResponse
+from app.services.tryon import run_tryon_request
 
 router = APIRouter()
 
-@router.post("/v1/tryon", response_model=TryonResponse)
-async def tryon(current_user: CurrentAuth) -> TryonResponse:
-    del current_user
-    return build_tryon_placeholder()
+
+@router.post("/v1/tryon", response_model=TryonResponse, status_code=http_status.OK)
+async def tryon(
+    payload: TryonRequest,
+    response: Response,
+    current_user: CurrentAuth,
+) -> TryonResponse:
+    result = await run_in_threadpool(
+        run_tryon_request,
+        payload,
+        user_id=str(current_user.user_id),
+    )
+    response.status_code = result.status
+    return result

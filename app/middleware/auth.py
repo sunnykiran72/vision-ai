@@ -38,16 +38,6 @@ async def authorization_middleware(
         return _json_unauthorized()
 
     settings = get_settings()
-    if not settings.jwt_access_secret:
-        return JSONResponse(
-            status_code=http_status.INTERNAL_SERVER_ERROR,
-            content={
-                "status": http_status.INTERNAL_SERVER_ERROR,
-                "message": "JWT authorization is not configured.",
-                "data": None,
-            },
-        )
-
     try:
         decoded = jwt.decode(
             token,

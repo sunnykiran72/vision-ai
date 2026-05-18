@@ -20,18 +20,14 @@ Request fields:
 
 - `image_url`
 - `metric`
-- `output_file_name`
 
 Notes:
 
 - `image_url` is the public input image URL
 - `metric` is the product-facing target size option
-- `output_file_name` is optional and only controls display-oriented naming intent
 
 Security rule:
 
-- `output_file_name` must be sanitized
-- it must never become the authoritative filesystem path or blob object key
 - server-generated job ids and ownership context must drive actual artifact storage names
 
 No runtime tuning fields are exposed publicly.

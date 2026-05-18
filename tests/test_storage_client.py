@@ -40,7 +40,10 @@ def test_storage_client_infers_jpg_content_type() -> None:
 
 
 def test_upload_file_raises_when_storage_not_configured(tmp_path: Path) -> None:
-    settings = Settings()
+    settings = Settings(
+        AZURE_STORAGE_CONNECTION_STRING="",
+        AZURE_STORAGE_CONTAINER="",
+    )
     client = AzureStorageClient(settings)
     file_path = tmp_path / "result.jpg"
     file_path.write_bytes(b"test")

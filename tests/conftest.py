@@ -17,6 +17,17 @@ TEST_JWT_ALGORITHM = "HS256"
 def auth_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv("JWT_ACCESS_SECRET", TEST_JWT_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", TEST_JWT_ALGORITHM)
+    monkeypatch.setenv("STARTUP_WARMUP_ENABLED", "false")
+    monkeypatch.setenv(
+        "AZURE_STORAGE_CONNECTION_STRING",
+        (
+            "DefaultEndpointsProtocol=https;"
+            "AccountName=glamifydevstorage;"
+            "AccountKey=test;"
+            "EndpointSuffix=core.windows.net"
+        ),
+    )
+    monkeypatch.setenv("AZURE_STORAGE_CONTAINER", "wardrobe-outputs")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

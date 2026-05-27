@@ -29,6 +29,15 @@ class JobMediaPaths:
     output_path: Path
 
 
+@dataclass(frozen=True)
+class TryonJobMediaPaths:
+    job_id: str
+    job_dir: Path
+    person_path: Path
+    garment_reference_path: Path
+    output_path: Path
+
+
 def ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -63,6 +72,18 @@ def build_job_media_paths(
         job_dir=job_dir,
         input_path=job_dir / input_name,
         output_path=job_dir / output_name,
+    )
+
+
+def build_tryon_job_media_paths(root_dir: Path) -> TryonJobMediaPaths:
+    job_id = uuid.uuid4().hex
+    job_dir = ensure_directory(root_dir / job_id)
+    return TryonJobMediaPaths(
+        job_id=job_id,
+        job_dir=job_dir,
+        person_path=job_dir / "person.jpg",
+        garment_reference_path=job_dir / "garment_reference.jpg",
+        output_path=job_dir / "output.jpg",
     )
 
 

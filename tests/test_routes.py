@@ -25,11 +25,12 @@ def test_user_validation_route_exists(auth_header: dict[str, str]) -> None:
 def test_tryon_route_exists(
     monkeypatch: MonkeyPatch,
     auth_header: dict[str, str],
+    auth_user_id: str,
 ) -> None:
     monkeypatch.setattr(
         tryon_route,
         "run_tryon_request",
-        lambda _payload, user_id=None: TryonResponse(
+        lambda _payload, user_id: TryonResponse(
             status=200,
             message="mocked",
             data=TryonResponseData(
@@ -54,16 +55,18 @@ def test_tryon_route_exists(
     )
     assert response.status_code == 200
     assert response.json()["data"]["metadata"]["feature"] == "tryon"
+    assert response.json()["data"]["metadata"]["user_id"] == auth_user_id
 
 
 def test_tryon_route_uses_structured_request(
     monkeypatch: MonkeyPatch,
     auth_header: dict[str, str],
+    auth_user_id: str,
 ) -> None:
     monkeypatch.setattr(
         tryon_route,
         "run_tryon_request",
-        lambda _payload, user_id=None: TryonResponse(
+        lambda _payload, user_id: TryonResponse(
             status=200,
             message="mocked",
             data=TryonResponseData(
@@ -93,6 +96,7 @@ def test_tryon_route_uses_structured_request(
     payload = response.json()
     assert payload["status"] == 200
     assert payload["data"]["metadata"]["feature"] == "tryon"
+    assert payload["data"]["metadata"]["user_id"] == auth_user_id
 
 
 def test_upscale_route_exists(

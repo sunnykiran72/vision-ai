@@ -6,7 +6,10 @@ from fastapi import FastAPI
 from app.config import get_settings
 from app.middleware.auth import authorization_middleware
 from app.router import router as api_router
-from app.runtime.warmup import warmup_resident_runtimes
+from app.runtime.warmup import (
+    validate_required_service_config,
+    warmup_resident_runtimes,
+)
 from app.utils.logging import configure_logging
 
 
@@ -16,6 +19,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings = get_settings()
+        validate_required_service_config(settings)
         if settings.startup_warmup_enabled:
             warmup_resident_runtimes(settings)
         yield

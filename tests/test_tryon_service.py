@@ -8,9 +8,9 @@ from typing import TypeVar
 from PIL import Image
 from pytest import MonkeyPatch
 
-from app.clients.qwen_image_edit import QwenImageEditRunResult
 from app.config import Settings
 from app.models.tryon import TryonRequest
+from app.runtime.tryon_types import TryonRunResult
 from app.services import tryon as tryon_service
 from app.utils.media_utils import DownloadedMedia
 
@@ -38,23 +38,32 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
         def run_tryon(
             self,
             *,
-            garment_reference_image: Image.Image,
-            user_image: Image.Image,
+            person_image_path: str,
+            garment_reference_path: str,
             prompt: str,
             steps: int,
             guidance_scale: float,
             seed: int,
-            output_width: int | None = None,
-            output_height: int | None = None,
-        ) -> QwenImageEditRunResult:
-            del prompt, steps, guidance_scale, seed, output_width, output_height, user_image
-            output = garment_reference_image.resize((1024, 1536))
-            return QwenImageEditRunResult(
+            output_path: str,
+            output_width: int,
+            output_height: int,
+        ) -> TryonRunResult:
+            del prompt, steps, guidance_scale, seed
+            assert Path(person_image_path).exists()
+            assert Path(garment_reference_path).exists()
+            output = Image.open(garment_reference_path).convert("RGB").resize(
+                (output_width, output_height),
+            )
+            output.save(output_path, format="JPEG", quality=95)
+            return TryonRunResult(
                 image=output,
                 metadata={
-                    "backend": "cuda",
+                    "backend": "ai_toolkit_exact",
                     "lora_loaded": True,
-                    "input_mode": "separate_garment_and_user_images",
+                    "control_order": {
+                        "ctrl_img_1": "person",
+                        "ctrl_img_2": "garment_reference",
+                    },
                 },
                 wall_seconds=1.4,
             )
@@ -83,6 +92,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
             content_type: str | None = None,
         ) -> str:
             assert file_path.exists()
+            assert "/user-123/" in object_name
             assert object_name.endswith("/output.jpg")
             assert content_type == "image/jpeg"
             return f"https://example.com/{object_name}"
@@ -91,8 +101,9 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
 
     settings = Settings(
         TRYON_WORK_ROOT=str(tmp_path),
+        AI_TOOLKIT_ROOT="/workspace/ai-toolkit",
+        QWEN_IMAGE_EDIT_MODEL_PATH="/workspace/models/qwen-image-edit-2511",
         TRYON_LORA_PATH="/workspace/models/lora/tryon",
-        TRYON_LORA_WEIGHT_NAME="tryon.safetensors",
     )
     payload = TryonRequest.model_validate(
         {
@@ -113,10 +124,87 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     assert response.data.url is not None
     assert response.data.metadata["feature"] == "tryon"
     assert response.data.metadata["reference"]["product_reference_mode"] == "single_product"
-    assert response.data.metadata["reference"]["input_mode"] == "separate_garment_and_user_images"
-    assert response.data.metadata["resolved_settings"]["seed"] == 44
+    assert response.data.metadata["reference"]["control_order"]["ctrl_img_1"] == "person"
+    assert response.data.metadata["reference"]["control_order"]["ctrl_img_2"] == "garment_reference"
+    assert response.data.metadata["resolved_settings"]["seed"] == 43
     assert response.data.metadata["output"]["width"] == 1024
     assert not any(tmp_path.iterdir())
+
+
+def test_build_tryon_prompt_preserves_duplicate_types_in_priority_order() -> None:
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/bottom.png",
+                    "type": "bottom",
+                    "prompt": "grey checked cropped pants",
+                },
+                {
+                    "image_url": "https://example.com/top-1.png",
+                    "type": "top",
+                    "prompt": "charcoal camisole top.",
+                },
+                {
+                    "image_url": "https://example.com/dress.png",
+                    "type": "dress",
+                    "prompt": "navy pleated evening dress",
+                },
+                {
+                    "image_url": "https://example.com/top-2.png",
+                    "type": "top",
+                    "prompt": "white asymmetrical short sleeve top!",
+                },
+            ],
+        },
+    )
+
+    prompt = tryon_service._build_tryon_prompt(payload)
+
+    assert prompt == (
+        "Apply the reference garments from image 2 to the person in image 1. "
+        "Top: charcoal camisole top. "
+        "Top: white asymmetrical short sleeve top. "
+        "Dress: navy pleated evening dress. "
+        "Bottom: grey checked cropped pants. "
+        "Preserve the person's face, identity, body proportions, pose, and background."
+    )
+
+
+def test_build_tryon_prompt_orders_outer_with_tops_before_dress_and_bottom() -> None:
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/bottom.png",
+                    "type": "bottom",
+                    "prompt": "black straight trousers",
+                },
+                {
+                    "image_url": "https://example.com/dress.png",
+                    "type": "dress",
+                    "prompt": "ivory slip dress",
+                },
+                {
+                    "image_url": "https://example.com/outer.png",
+                    "type": "outer",
+                    "prompt": "cropped denim jacket",
+                },
+            ],
+        },
+    )
+
+    prompt = tryon_service._build_tryon_prompt(payload)
+
+    assert prompt == (
+        "Apply the reference garments from image 2 to the person in image 1. "
+        "Outer: cropped denim jacket. "
+        "Dress: ivory slip dress. "
+        "Bottom: black straight trousers. "
+        "Preserve the person's face, identity, body proportions, pose, and background."
+    )
 
 
 def _build_png_bytes(width: int, height: int) -> bytes:

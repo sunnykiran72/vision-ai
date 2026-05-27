@@ -34,9 +34,14 @@ def auth_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def auth_header() -> dict[str, str]:
+def auth_user_id() -> str:
+    return str(uuid4())
+
+
+@pytest.fixture
+def auth_header(auth_user_id: str) -> dict[str, str]:
     payload = {
-        "userId": str(uuid4()),
+        "userId": auth_user_id,
         "authType": "EMAIL",
         "token_id": str(uuid4()),
         "exp": int(time.time()) + 3600,

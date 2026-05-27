@@ -3,12 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageChops
 
-TARGET_W = 1056
-TARGET_H = 1584
-PADDING = 24
-SEPARATOR_H = 20
+OUTER_PADDING = 12
+INNER_PADDING = 0
+COLLAGE_GAP = 12
+MAX_ROW_ITEM_W = 640
+MAX_ROW_ITEM_H = 720
+MAX_VERTICAL_SECTION_W = 720
+MAX_VERTICAL_SECTION_H = 720
+TRIM_TOLERANCE = 12
+TRIM_MARGIN = 10
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,13 @@ def resize_to_height(image: Image.Image, target_height: int) -> Image.Image:
     return image.resize((target_width, target_height), resample)
 
 
+def normalize_product_type(product_type: str) -> str:
+    normalized = str(product_type).strip().lower()
+    if normalized == "outer":
+        return "top"
+    return normalized
+
+
 def build_product_reference(products: list[ProductReferenceInput]) -> TryonCollageResult:
     if not products:
         raise ValueError("At least one product image is required.")
@@ -48,33 +60,67 @@ def build_product_reference(products: list[ProductReferenceInput]) -> TryonColla
             product_count=1,
         )
 
-    by_type = {item.type: item.image.convert("RGB") for item in products}
-    if set(by_type.keys()) == {"top", "bottom"} and len(products) == 2:
+    grouped_products = _group_products_by_type(products)
+    tops = grouped_products.get("top", [])
+    bottoms = grouped_products.get("bottom", [])
+    dresses = grouped_products.get("dress", [])
+
+    if len(tops) == 1 and len(bottoms) == 1 and not dresses:
         return TryonCollageResult(
-            image=_build_top_bottom_collage(
-                top_img=by_type["top"],
-                bottom_img=by_type["bottom"],
-                top_ratio=0.5,
-            ),
+            image=_build_top_bottom_collage(tops=tops, bottom_img=bottoms[0]),
             mode="top_bottom_vertical_collage",
             product_count=2,
         )
 
-    target_height = max(int(item.image.height) for item in products)
-    normalized_products = [
-        resize_to_height(item.image.convert("RGB"), target_height)
-        for item in products
-    ]
-    board_width = sum(int(image.width) for image in normalized_products)
-    board = Image.new("RGB", (board_width, target_height), "white")
+    if len(tops) == 2 and len(bottoms) == 1 and not dresses:
+        return TryonCollageResult(
+            image=_build_top_bottom_collage(tops=tops, bottom_img=bottoms[0]),
+            mode="two_tops_bottom_mixed_collage",
+            product_count=3,
+        )
 
-    offset_x = 0
-    for image in normalized_products:
-        board.paste(image, (offset_x, 0))
-        offset_x += int(image.width)
+    if len(tops) == 2 and not bottoms and not dresses:
+        return TryonCollageResult(
+            image=_build_horizontal_collage(tops),
+            mode="two_tops_horizontal_collage",
+            product_count=2,
+        )
+
+    if len(dresses) == 1 and len(tops) == 1 and not bottoms:
+        return TryonCollageResult(
+            image=_build_horizontal_collage([tops[0], dresses[0]]),
+            mode="top_dress_horizontal_collage",
+            product_count=2,
+        )
+
+    if len(dresses) == 1 and len(bottoms) == 1 and not tops:
+        return TryonCollageResult(
+            image=_build_compact_vertical_collage([dresses[0], bottoms[0]]),
+            mode="dress_bottom_vertical_collage",
+            product_count=2,
+        )
+
+    if len(dresses) == 1 and len(tops) == 2 and not bottoms:
+        return TryonCollageResult(
+            image=_build_horizontal_collage([*tops, dresses[0]]),
+            mode="two_tops_dress_horizontal_collage",
+            product_count=3,
+        )
+
+    if len(dresses) == 1 and tops and len(tops) <= 2 and len(bottoms) == 1:
+        outfit_stack = _build_top_bottom_collage(tops=tops, bottom_img=bottoms[0])
+        return TryonCollageResult(
+            image=_build_horizontal_collage([outfit_stack, dresses[0]]),
+            mode=(
+                "dress_with_top_bottom_stack_collage"
+                if len(tops) == 1
+                else "dress_with_two_tops_bottom_stack_collage"
+            ),
+            product_count=len(products),
+        )
 
     return TryonCollageResult(
-        image=board,
+        image=_build_horizontal_collage([_prepare_collage_image(item.image) for item in products]),
         mode="multi_product_horizontal_collage",
         product_count=len(products),
     )
@@ -97,112 +143,131 @@ def compose_reference_with_user(
     )
 
 
-def _contain_no_upscale(src: Image.Image, max_w: int, max_h: int) -> Image.Image:
-    src = src.convert("RGB")
-    scale = min(float(max_w) / float(src.width), float(max_h) / float(src.height), 1.0)
-    target_w = max(1, int(round(float(src.width) * scale)))
-    target_h = max(1, int(round(float(src.height) * scale)))
-    return resize_to_height(src.resize((target_w, target_h)), target_h)
+def _group_products_by_type(
+    products: list[ProductReferenceInput],
+) -> dict[str, list[Image.Image]]:
+    grouped: dict[str, list[Image.Image]] = {}
+    for item in products:
+        grouped.setdefault(normalize_product_type(item.type), []).append(
+            _prepare_collage_image(item.image),
+        )
+    return grouped
 
 
-def _contain_limited_upscale(
-    src: Image.Image,
-    max_w: int,
-    max_h: int,
-    *,
-    max_upscale: float,
-) -> Image.Image:
-    src = src.convert("RGB")
-    scale = min(
-        float(max_w) / float(src.width),
-        float(max_h) / float(src.height),
-        float(max_upscale),
+def _prepare_collage_image(image: Image.Image) -> Image.Image:
+    return _trim_empty_border(image).convert("RGB")
+
+
+def _trim_empty_border(image: Image.Image) -> Image.Image:
+    if image.mode in {"RGBA", "LA"}:
+        alpha = image.getchannel("A")
+        bbox = alpha.getbbox()
+        if bbox is not None:
+            return image.crop(_expand_bbox(bbox, image.size, TRIM_MARGIN))
+
+    rgb = image.convert("RGB")
+    bg_color = _average_corner_color(rgb)
+    diff = ImageChops.difference(rgb, Image.new("RGB", rgb.size, bg_color))
+    mask = diff.point(lambda value: 255 if value > TRIM_TOLERANCE else 0).convert("L")
+    bbox = mask.getbbox()
+    if bbox is None:
+        return rgb
+    return rgb.crop(_expand_bbox(bbox, rgb.size, TRIM_MARGIN))
+
+
+def _average_corner_color(image: Image.Image) -> tuple[int, int, int]:
+    corners = [
+        image.getpixel((0, 0)),
+        image.getpixel((image.width - 1, 0)),
+        image.getpixel((0, image.height - 1)),
+        image.getpixel((image.width - 1, image.height - 1)),
+    ]
+    return tuple(int(round(sum(pixel[channel] for pixel in corners) / 4)) for channel in range(3))
+
+
+def _expand_bbox(
+    bbox: tuple[int, int, int, int],
+    size: tuple[int, int],
+    margin: int,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = bbox
+    width, height = size
+    return (
+        max(0, left - margin),
+        max(0, top - margin),
+        min(width, right + margin),
+        min(height, bottom + margin),
     )
-    target_w = max(1, int(round(float(src.width) * scale)))
-    target_h = max(1, int(round(float(src.height) * scale)))
+
+
+def _fit_to_box(image: Image.Image, max_width: int, max_height: int) -> Image.Image:
+    image = image.convert("RGB")
+    scale = min(
+        float(max_width) / float(image.width),
+        float(max_height) / float(image.height),
+        1.0,
+    )
+    target_width = max(1, int(round(float(image.width) * scale)))
+    target_height = max(1, int(round(float(image.height) * scale)))
+    if target_width == image.width and target_height == image.height:
+        return image
     resample: Any
     if hasattr(Image, "Resampling"):
         resample = Image.Resampling.LANCZOS
     else:
         resample = 3
-    return src.resize((target_w, target_h), resample)
+    return image.resize((target_width, target_height), resample)
 
 
-def _place_center(
-    canvas: Image.Image,
-    src: Image.Image,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
+def _build_horizontal_collage(
+    images: list[Image.Image],
     *,
-    max_upscale: float,
-    min_fill_for_no_upscale: float,
-    valign: str = "center",
-) -> None:
-    src_area = float(src.width * src.height)
-    box_area = float(max(1, w * h))
-    src_fill = src_area / box_area
-    if src_fill < float(min_fill_for_no_upscale):
-        fitted = _contain_limited_upscale(src, w, h, max_upscale=float(max_upscale))
-    else:
-        fitted = _contain_no_upscale(src, w, h)
-    ox = x + (w - fitted.width) // 2
-    if valign == "top":
-        oy = y
-    elif valign == "bottom":
-        oy = y + (h - fitted.height)
-    else:
-        oy = y + (h - fitted.height) // 2
-    canvas.paste(fitted, (ox, oy))
-
-
-def _build_top_bottom_collage(
-    top_img: Image.Image,
-    bottom_img: Image.Image,
-    *,
-    top_ratio: float,
+    padding: int = OUTER_PADDING,
 ) -> Image.Image:
-    panel_total_h = TARGET_H - SEPARATOR_H
-    ratio = max(0.35, min(0.65, float(top_ratio)))
+    if not images:
+        raise ValueError("At least one image is required.")
 
-    top_h = int(round(panel_total_h * ratio))
-    top_h = max(int(panel_total_h * 0.35), min(int(panel_total_h * 0.65), top_h))
-    bottom_h = panel_total_h - top_h
-    canvas = Image.new("RGB", (TARGET_W, TARGET_H), (255, 255, 255))
+    prepared = [_fit_to_box(image, MAX_ROW_ITEM_W, MAX_ROW_ITEM_H) for image in images]
+    width = sum(image.width for image in prepared) + COLLAGE_GAP * (len(prepared) - 1)
+    height = max(image.height for image in prepared)
+    canvas = Image.new("RGB", (width + padding * 2, height + padding * 2), "white")
 
-    top_box = (PADDING, PADDING, TARGET_W - PADDING * 2, top_h - PADDING * 2)
-    bottom_y = top_h + SEPARATOR_H
-    bottom_box = (PADDING, bottom_y + PADDING, TARGET_W - PADDING * 2, bottom_h - PADDING * 2)
+    offset_x = padding
+    for image in prepared:
+        offset_y = padding + (height - image.height) // 2
+        canvas.paste(image, (offset_x, offset_y))
+        offset_x += image.width + COLLAGE_GAP
 
-    top_ar = float(top_img.height) / max(1.0, float(top_img.width))
-    bottom_ar = float(bottom_img.height) / max(1.0, float(bottom_img.width))
-
-    top_upscale = 1.35 if top_ar < 0.90 else 1.22 if top_ar < 1.20 else 1.15
-    if bottom_ar < 0.85:
-        bottom_upscale = 2.0
-        bottom_min_fill = 0.62
-    elif bottom_ar < 1.05:
-        bottom_upscale = 1.75
-        bottom_min_fill = 0.58
-    else:
-        bottom_upscale = 1.45
-        bottom_min_fill = 0.50
-
-    _place_center(
-        canvas,
-        top_img,
-        *top_box,
-        max_upscale=top_upscale,
-        min_fill_for_no_upscale=0.45,
-        valign="bottom",
-    )
-    _place_center(
-        canvas,
-        bottom_img,
-        *bottom_box,
-        max_upscale=bottom_upscale,
-        min_fill_for_no_upscale=bottom_min_fill,
-        valign="top",
-    )
     return canvas
+
+
+def _build_compact_vertical_collage(
+    images: list[Image.Image],
+    *,
+    padding: int = OUTER_PADDING,
+) -> Image.Image:
+    if not images:
+        raise ValueError("At least one image is required.")
+
+    prepared = [
+        _fit_to_box(image, MAX_VERTICAL_SECTION_W, MAX_VERTICAL_SECTION_H)
+        for image in images
+    ]
+    content_width = max(image.width for image in prepared)
+    content_height = sum(image.height for image in prepared) + COLLAGE_GAP * (len(prepared) - 1)
+    width = content_width + padding * 2
+    height = content_height + padding * 2
+    canvas = Image.new("RGB", (width, height), "white")
+
+    offset_y = padding
+    for image in prepared:
+        offset_x = padding + (content_width - image.width) // 2
+        canvas.paste(image, (offset_x, offset_y))
+        offset_y += image.height + COLLAGE_GAP
+
+    return canvas
+
+
+def _build_top_bottom_collage(tops: list[Image.Image], bottom_img: Image.Image) -> Image.Image:
+    top_section = _build_horizontal_collage(tops, padding=INNER_PADDING)
+    return _build_compact_vertical_collage([top_section, bottom_img], padding=INNER_PADDING)

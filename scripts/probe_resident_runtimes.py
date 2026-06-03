@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings
 from app.runtime.tryon_runtime import warmup_tryon_runtime

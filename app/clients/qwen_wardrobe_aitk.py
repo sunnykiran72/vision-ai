@@ -108,7 +108,7 @@ class QwenWardrobeAitkClient:
             network_multiplier=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
             output_path=str(output_file),
             output_ext="jpg",
-            ctrl_img=str(input_image_path),
+            ctrl_img_1=str(input_image_path),
             do_cfg_norm=wardrobe_constants.GENERATION_DO_CFG_NORM,
         )
 
@@ -125,7 +125,7 @@ class QwenWardrobeAitkClient:
         image = Image.open(output_file).convert("RGB")
         metadata = {
             "backend": "ai_toolkit_exact",
-            "architecture": "qwen_image_edit",
+            "architecture": "qwen_image_edit_plus",
             "model_source": str(self._model_path),
             "ai_toolkit_root": str(self._aitk_root),
             "checkpoint_path": str(self._specialist_paths[garment_type]),
@@ -139,7 +139,7 @@ class QwenWardrobeAitkClient:
             "sampler": wardrobe_constants.GENERATION_SAMPLER,
             "seed": wardrobe_constants.GENERATION_SEED,
             "steps": wardrobe_constants.GENERATION_STEPS,
-            "control_order": {"ctrl_img": "garment_input"},
+            "control_order": {"ctrl_img_1": "garment_input"},
             "output_size": {
                 "width": wardrobe_constants.OUTPUT_WIDTH,
                 "height": wardrobe_constants.OUTPUT_HEIGHT,
@@ -195,7 +195,7 @@ class QwenWardrobeAitkClient:
         model_config = ModelConfig(
             **{
                 "name_or_path": str(self._model_path),
-                "arch": "qwen_image_edit",
+                "arch": "qwen_image_edit_plus",
                 "quantize": False,
                 "quantize_te": False,
                 "low_vram": False,

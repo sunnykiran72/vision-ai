@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
-from app.clients.qwen_wardrobe_aitk import QwenWardrobeAitkClient
 from app.config import Settings, get_settings
 from app.constants import wardrobe as wardrobe_constants
 from app.runtime.coordinator import BoundedExecutionCoordinator, CoordinatorSnapshot
+from app.runtime.qwen_shared_runtime import get_shared_qwen_runner
 from app.runtime.wardrobe_types import (
     WardrobeRunner,
     WardrobeRuntimeStatus,
@@ -20,15 +20,35 @@ class WardrobeRuntimeSnapshot:
     coordinator: CoordinatorSnapshot
 
 
+class SharedWardrobeRunnerAdapter:
+    def __init__(self, shared_runner: Any) -> None:
+        self._shared_runner = shared_runner
+
+    def warmup(self) -> None:
+        self._shared_runner.warmup()
+
+    def status(self) -> WardrobeRuntimeStatus:
+        return cast(WardrobeRuntimeStatus, self._shared_runner.wardrobe_status())
+
+    def run_extract(
+        self,
+        *,
+        input_image_path: str,
+        prompt: str,
+        garment_type: str,
+        output_path: str,
+    ) -> Any:
+        return self._shared_runner.run_extract(
+            input_image_path=input_image_path,
+            prompt=prompt,
+            garment_type=garment_type,
+            output_path=output_path,
+        )
+
+
 def get_wardrobe_runner(settings: Settings | None = None) -> WardrobeRunner:
     resolved_settings = settings or get_settings()
-    return _get_wardrobe_runner_cached(
-        resolved_settings.ai_toolkit_root,
-        resolved_settings.qwen_image_edit_model_path,
-        resolved_settings.wardrobe_lora_top_path,
-        resolved_settings.wardrobe_lora_bottom_path,
-        resolved_settings.wardrobe_lora_dress_path,
-    )
+    return SharedWardrobeRunnerAdapter(get_shared_qwen_runner(resolved_settings))
 
 
 @lru_cache(maxsize=8)
@@ -46,7 +66,7 @@ def _get_wardrobe_runner_cached(
         WARDROBE_LORA_BOTTOM_PATH=wardrobe_lora_bottom_path,
         WARDROBE_LORA_DRESS_PATH=wardrobe_lora_dress_path,
     )
-    return QwenWardrobeAitkClient(settings)
+    return SharedWardrobeRunnerAdapter(get_shared_qwen_runner(settings))
 
 
 def get_wardrobe_execution_coordinator(
@@ -75,7 +95,8 @@ def warmup_wardrobe_runtime(settings: Settings | None = None) -> None:
 
 def get_wardrobe_runtime_status(settings: Settings | None = None) -> WardrobeRuntimeSnapshot:
     resolved_settings = settings or get_settings()
+    runner = get_wardrobe_runner(resolved_settings)
     return WardrobeRuntimeSnapshot(
-        runner=get_wardrobe_runner(resolved_settings).status(),
+        runner=runner.status(),
         coordinator=get_wardrobe_execution_coordinator(resolved_settings).snapshot(),
     )

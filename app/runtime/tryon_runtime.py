@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from app.clients.qwen_tryon_aitk import QwenTryonAitkClient
 from app.config import Settings, get_settings
 from app.runtime.coordinator import BoundedExecutionCoordinator, CoordinatorSnapshot
+from app.runtime.qwen_shared_runtime import get_shared_qwen_runner
 from app.runtime.tryon_types import TryonRunner, TryonRunResult, TryonRuntimeStatus
 
 
@@ -17,23 +17,7 @@ class TryonRuntimeSnapshot:
 
 def get_tryon_runner(settings: Settings | None = None) -> TryonRunner:
     resolved_settings = settings or get_settings()
-    return _get_tryon_runner_cached(
-        resolved_settings.ai_toolkit_root,
-        resolved_settings.qwen_image_edit_model_path,
-        resolved_settings.tryon_use_specialists,
-        resolved_settings.tryon_enabled_specialists,
-        resolved_settings.tryon_lora_path,
-        resolved_settings.tryon_lora_top_path,
-        resolved_settings.tryon_lora_bottom_path,
-        resolved_settings.tryon_lora_dress_path,
-        resolved_settings.tryon_lora_multi_path,
-        resolved_settings.tryon_lora_rank,
-        resolved_settings.tryon_lora_alpha,
-        resolved_settings.tryon_lora_scale,
-        resolved_settings.tryon_sampler,
-        resolved_settings.tryon_guidance_rescale,
-        resolved_settings.tryon_do_cfg_norm,
-    )
+    return get_shared_qwen_runner(resolved_settings)
 
 
 @lru_cache(maxsize=8)
@@ -71,7 +55,7 @@ def _get_tryon_runner_cached(
         TRYON_GUIDANCE_RESCALE=tryon_guidance_rescale,
         TRYON_DO_CFG_NORM=tryon_do_cfg_norm,
     )
-    return QwenTryonAitkClient(settings)
+    return get_shared_qwen_runner(settings)
 
 
 def get_tryon_execution_coordinator(

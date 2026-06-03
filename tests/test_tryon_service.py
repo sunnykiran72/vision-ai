@@ -252,6 +252,34 @@ def test_specialist_routing_multi_for_two_or_more_products() -> None:
     assert routing.trigger_caption == "Apply GlamifyMultiTryon on this person"
 
 
+def test_specialist_routing_rejects_disabled_specialist() -> None:
+    from app.services.tryon_routing import resolve_tryon_route
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/dress.png",
+                    "type": "dress",
+                    "prompt": "black midi dress",
+                },
+            ],
+        },
+    )
+    settings = Settings(
+        TRYON_USE_SPECIALISTS=True,
+        TRYON_ENABLED_SPECIALISTS="top,bottom",
+    )
+
+    try:
+        resolve_tryon_route(payload.products, settings)
+    except ValueError as exc:
+        assert "dress" in str(exc)
+    else:
+        raise AssertionError("Expected disabled specialist routing to fail")
+
+
 def test_specialist_prompt_multi_lists_each_category() -> None:
     from app.services.tryon_routing import resolve_tryon_route
 

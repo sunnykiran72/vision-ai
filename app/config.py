@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+TRYON_SPECIALIST_KEYS = ("top", "bottom", "dress", "multi")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -45,6 +47,10 @@ class Settings(BaseSettings):
     tryon_lora_scale: float = Field(default=1.0, alias="TRYON_LORA_SCALE")
 
     tryon_use_specialists: bool = Field(default=False, alias="TRYON_USE_SPECIALISTS")
+    tryon_enabled_specialists: str = Field(
+        default="top,bottom,dress,multi",
+        alias="TRYON_ENABLED_SPECIALISTS",
+    )
     tryon_lora_top_path: str = Field(default="", alias="TRYON_LORA_TOP_PATH")
     tryon_lora_bottom_path: str = Field(default="", alias="TRYON_LORA_BOTTOM_PATH")
     tryon_lora_dress_path: str = Field(default="", alias="TRYON_LORA_DRESS_PATH")
@@ -134,12 +140,14 @@ def validate_startup_settings(settings: Settings) -> None:
     }
 
     if settings.tryon_use_specialists:
+        enabled_specialists = get_enabled_tryon_specialists(settings)
         required_values.update(
             {
-                "TRYON_LORA_TOP_PATH": settings.tryon_lora_top_path,
-                "TRYON_LORA_BOTTOM_PATH": settings.tryon_lora_bottom_path,
-                "TRYON_LORA_DRESS_PATH": settings.tryon_lora_dress_path,
-                "TRYON_LORA_MULTI_PATH": settings.tryon_lora_multi_path,
+                f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
+                    settings,
+                    specialist,
+                )
+                for specialist in enabled_specialists
             },
         )
     else:
@@ -162,12 +170,14 @@ def validate_startup_settings(settings: Settings) -> None:
         "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
     }
     if settings.tryon_use_specialists:
+        enabled_specialists = get_enabled_tryon_specialists(settings)
         path_fields.update(
             {
-                "TRYON_LORA_TOP_PATH": settings.tryon_lora_top_path,
-                "TRYON_LORA_BOTTOM_PATH": settings.tryon_lora_bottom_path,
-                "TRYON_LORA_DRESS_PATH": settings.tryon_lora_dress_path,
-                "TRYON_LORA_MULTI_PATH": settings.tryon_lora_multi_path,
+                f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
+                    settings,
+                    specialist,
+                )
+                for specialist in enabled_specialists
             },
         )
     else:
@@ -187,3 +197,34 @@ def validate_startup_settings(settings: Settings) -> None:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_enabled_tryon_specialists(settings: Settings) -> tuple[str, ...]:
+    raw_values = [
+        value.strip().lower()
+        for value in str(settings.tryon_enabled_specialists or "").split(",")
+        if value.strip()
+    ]
+    if not raw_values:
+        raise RuntimeError("TRYON_ENABLED_SPECIALISTS must include at least one specialist.")
+    invalid = sorted(set(raw_values) - set(TRYON_SPECIALIST_KEYS))
+    if invalid:
+        raise RuntimeError(
+            "Invalid TRYON_ENABLED_SPECIALISTS values: "
+            + ", ".join(invalid)
+            + ". Expected any of: "
+            + ", ".join(TRYON_SPECIALIST_KEYS),
+        )
+    return tuple(dict.fromkeys(raw_values))
+
+
+def _tryon_specialist_path(settings: Settings, specialist: str) -> str:
+    if specialist == "top":
+        return settings.tryon_lora_top_path
+    if specialist == "bottom":
+        return settings.tryon_lora_bottom_path
+    if specialist == "dress":
+        return settings.tryon_lora_dress_path
+    if specialist == "multi":
+        return settings.tryon_lora_multi_path
+    raise RuntimeError(f"Unknown try-on specialist: {specialist}")

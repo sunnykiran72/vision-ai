@@ -13,6 +13,12 @@ def test_health_route_is_public() -> None:
     assert response.status_code == 200
 
 
+def test_api_console_route_is_public() -> None:
+    response = client.get("/tools/api-console")
+    assert response.status_code == 200
+    assert "Glamify AI API Console" in response.text
+
+
 def test_protected_route_requires_bearer_token() -> None:
     response = client.post(
         "/v1/upscale",

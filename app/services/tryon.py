@@ -260,6 +260,16 @@ def run_tryon_request(
                 "error": str(exc),
             },
         )
+    except ValueError as exc:
+        return _error_response(
+            http_status.BAD_REQUEST,
+            str(exc),
+            {
+                "feature": "tryon",
+                "user_image": str(payload.user_image),
+                "error": str(exc),
+            },
+        )
     except TryonRuntimeError as exc:
         return _error_response(
             http_status.INTERNAL_SERVER_ERROR,

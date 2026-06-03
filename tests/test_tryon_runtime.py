@@ -31,6 +31,7 @@ def _runner_args(**overrides: object) -> dict[str, object]:
         "ai_toolkit_root": "/toolkit",
         "qwen_image_edit_model_path": "/model",
         "tryon_use_specialists": False,
+        "tryon_enabled_specialists": "top,bottom,dress,multi",
         "tryon_lora_path": "/checkpoint-a.safetensors",
         "tryon_lora_top_path": "",
         "tryon_lora_bottom_path": "",

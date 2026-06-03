@@ -12,7 +12,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.config import Settings
+from app.config import Settings, get_enabled_tryon_specialists
 from app.runtime.tryon_types import TryonRunResult, TryonRuntimeStatus
 
 logger = logging.getLogger("glamify-ai")
@@ -35,6 +35,11 @@ class QwenTryonAitkClient:
         self._aitk_root = Path(settings.ai_toolkit_root).expanduser()
         self._model_path = Path(settings.qwen_image_edit_model_path).expanduser()
         self._use_specialists = bool(settings.tryon_use_specialists)
+        self._enabled_specialists = (
+            get_enabled_tryon_specialists(settings)
+            if self._use_specialists
+            else SPECIALIST_CATEGORIES
+        )
         self._checkpoint_path = Path(settings.tryon_lora_path).expanduser()
         self._specialist_paths: dict[str, Path] = {
             "top": Path(settings.tryon_lora_top_path).expanduser(),
@@ -76,8 +81,8 @@ class QwenTryonAitkClient:
     def set_active_specialist(self, category: str) -> None:
         if not self._use_specialists:
             return
-        if category not in SPECIALIST_CATEGORIES:
-            raise TryonRuntimeError(f"Unknown try-on specialist category: {category}")
+        if category not in self._enabled_specialists:
+            raise TryonRuntimeError(f"Try-on specialist is not enabled: {category}")
         self._ensure_ready()
         self._load_specialist_state_dicts()
         if self._active_specialist == category:
@@ -328,7 +333,7 @@ class QwenTryonAitkClient:
             raise TryonRuntimeError("AI-Toolkit LoRA network is not initialized.")
         if self._specialist_state_dicts:
             return
-        for category in SPECIALIST_CATEGORIES:
+        for category in self._enabled_specialists:
             path = self._specialist_paths[category]
             if not path.exists():
                 raise TryonRuntimeError(

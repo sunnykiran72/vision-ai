@@ -1,0 +1,1265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glamify AI API Console</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101214;
+      --panel: #171a1d;
+      --panel-2: #1e2327;
+      --line: #30363d;
+      --line-soft: #242a30;
+      --text: #edf1f5;
+      --muted: #aeb7c2;
+      --muted-2: #7f8994;
+      --accent: #48b59f;
+      --accent-2: #d8a545;
+      --danger: #e06c75;
+      --ok: #68c58a;
+      --warn: #d8a545;
+      --code: #0b0d0f;
+      --focus: rgba(72, 181, 159, 0.34);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #07100e;
+      font-weight: 700;
+    }
+
+    button.danger {
+      color: var(--danger);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    label {
+      color: var(--muted);
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      margin-bottom: 7px;
+      text-transform: uppercase;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #111417;
+      color: var(--text);
+      border-radius: 6px;
+      min-height: 38px;
+      padding: 9px 10px;
+      outline: none;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--focus);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 180px;
+      line-height: 1.45;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(16, 18, 20, 0.96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .topbar-inner {
+      max-width: 1520px;
+      margin: 0 auto;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(520px, 1.5fr);
+      gap: 18px;
+      align-items: end;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.5fr) auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .main {
+      max-width: 1520px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px 20px 28px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 18px;
+      overflow-x: auto;
+    }
+
+    .notice {
+      display: none;
+      border: 1px solid rgba(216, 165, 69, 0.45);
+      background: rgba(216, 165, 69, 0.1);
+      color: #f0d7a1;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .notice.visible {
+      display: flex;
+    }
+
+    .notice p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .tab-button {
+      border: 0;
+      border-bottom: 3px solid transparent;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      min-height: 42px;
+      padding: 0 16px;
+      white-space: nowrap;
+    }
+
+    .tab-button.active {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(340px, 0.95fr) minmax(380px, 1.05fr) minmax(360px, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      min-width: 0;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-head h2,
+    .panel-head h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      padding: 14px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .status-line {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--muted);
+      background: #111417;
+      font-size: 12px;
+    }
+
+    .pill.ok {
+      color: var(--ok);
+      border-color: rgba(104, 197, 138, 0.4);
+    }
+
+    .pill.warn {
+      color: var(--warn);
+      border-color: rgba(216, 165, 69, 0.45);
+    }
+
+    .pill.error {
+      color: var(--danger);
+      border-color: rgba(224, 108, 117, 0.45);
+    }
+
+    .preview-box {
+      border: 1px dashed var(--line);
+      background: #0d1012;
+      border-radius: 8px;
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .preview-box img {
+      max-width: 100%;
+      max-height: 420px;
+      display: block;
+      object-fit: contain;
+    }
+
+    .preview-box.empty {
+      color: var(--muted-2);
+      font-size: 13px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .codebox {
+      border: 1px solid var(--line-soft);
+      background: var(--code);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 360px;
+    }
+
+    .logbox {
+      border: 1px solid var(--line-soft);
+      background: var(--code);
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 160px;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .log-row {
+      display: grid;
+      grid-template-columns: 84px minmax(0, 1fr);
+      gap: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      padding: 4px 0;
+    }
+
+    .log-row:last-child {
+      border-bottom: 0;
+    }
+
+    .log-time {
+      color: var(--accent-2);
+    }
+
+    .product {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      background: #14181b;
+    }
+
+    .product-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .product-head strong {
+      font-size: 13px;
+    }
+
+    .history {
+      margin-top: 16px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: 140px 90px 100px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line-soft);
+      background: #14181b;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .small {
+      color: var(--muted-2);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 1180px) {
+      .workspace,
+      .topbar-inner {
+        grid-template-columns: 1fr;
+      }
+
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .main,
+      .topbar-inner {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .history-row {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div>
+          <h1>Glamify AI API Console</h1>
+          <p class="subtitle">Wardrobe, try-on, and upscaler request console with timing, logs, metadata, and previews.</p>
+        </div>
+        <div class="settings-grid">
+          <div>
+            <label for="apiBaseUrl">API base URL</label>
+            <input id="apiBaseUrl" value="http://localhost:8000" autocomplete="off">
+          </div>
+          <div>
+            <label for="authToken">Bearer token</label>
+            <input id="authToken" type="password" placeholder="Paste JWT or Bearer token" autocomplete="off">
+          </div>
+          <button id="saveSettings" type="button" title="Save API base URL and token in this browser">Save</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="fileModeNotice" class="notice">
+        <p>This page is open as a local file. Build/copy buttons work, but API calls can be blocked by browser CORS. Open the console from the running API server for live requests.</p>
+        <button id="openServedConsole" type="button">Open Served Console</button>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="API tabs">
+        <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="tab-wardrobe" data-tab="wardrobe" onclick="switchTab('wardrobe')">Wardrobe</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-tryon" data-tab="tryon" onclick="switchTab('tryon')">Try-On</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-upscale" data-tab="upscale" onclick="switchTab('upscale')">Upscaler</button>
+      </nav>
+
+      <section id="tab-wardrobe" class="tab-panel active" role="tabpanel">
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Wardrobe Input</h2>
+              <span class="pill">POST /v1/wardrobe</span>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label for="wardrobeImage">Image file</label>
+                <input id="wardrobeImage" type="file" accept="image/png,image/jpeg">
+                <p id="wardrobeImageMeta" class="small">PNG/JPEG, both width and height must pass the API minimum.</p>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="wardrobeType">Type</label>
+                  <select id="wardrobeType">
+                    <option value="top">top</option>
+                    <option value="bottom" selected>bottom</option>
+                    <option value="dress">dress</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="wardrobeBase64Mode">Image encoding</label>
+                  <select id="wardrobeBase64Mode">
+                    <option value="raw" selected>raw base64</option>
+                    <option value="dataUrl">data URL</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label>Input preview</label>
+                <div id="wardrobeInputPreview" class="preview-box empty">No image selected</div>
+              </div>
+              <div class="actions">
+                <button class="primary" type="button" data-submit="wardrobe" title="Send the wardrobe JSON to /v1/wardrobe">Run Wardrobe</button>
+                <button type="button" data-build="wardrobe" title="Rebuild request JSON from the current controls">Build JSON</button>
+                <button type="button" data-copy="wardrobeRequest" title="Copy the wardrobe request JSON">Copy JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Request JSON</h2>
+              <span id="wardrobeRequestSize" class="pill">0 bytes</span>
+            </div>
+            <div class="panel-body">
+              <textarea id="wardrobeRequest" spellcheck="false"></textarea>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Wardrobe Output</h2>
+              <div class="status-line">
+                <span id="wardrobeStatus" class="pill">idle</span>
+                <span id="wardrobeLatency" class="pill">0 ms</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label>Generated image</label>
+                <div id="wardrobeOutputPreview" class="preview-box empty">No output yet</div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>Metadata</label>
+                  <div class="codebox"><pre id="wardrobeMetadata">{}</pre></div>
+                </div>
+                <div class="field">
+                  <label>Logs</label>
+                  <div id="wardrobeLogs" class="logbox"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Raw response</label>
+                <div class="codebox"><pre id="wardrobeResponse">{}</pre></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-tryon" class="tab-panel" role="tabpanel" hidden>
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Try-On Input</h2>
+              <span class="pill">POST /v1/tryon</span>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label for="tryonUserImage">User image URL</label>
+                <input id="tryonUserImage" placeholder="https://.../person.jpg">
+              </div>
+              <div class="grid-3">
+                <div class="field">
+                  <label for="tryonSeed">Seed</label>
+                  <input id="tryonSeed" type="number" min="0" max="2147483647" placeholder="optional">
+                </div>
+                <div class="field">
+                  <label for="tryonSteps">Steps</label>
+                  <input id="tryonSteps" type="number" min="1" max="60" placeholder="optional">
+                </div>
+                <div class="field">
+                  <label for="tryonGuidance">Guidance scale</label>
+                  <input id="tryonGuidance" type="number" min="0" max="20" step="0.1" placeholder="optional">
+                </div>
+              </div>
+              <div class="field">
+                <div class="product-head">
+                  <label style="margin:0">Products</label>
+                  <button id="addTryonProduct" type="button" title="Add another try-on product object">Add Product</button>
+                </div>
+                <div id="tryonProducts"></div>
+              </div>
+              <div class="actions">
+                <button class="primary" type="button" data-submit="tryon" title="Send the try-on JSON to /v1/tryon">Run Try-On</button>
+                <button type="button" data-build="tryon" title="Rebuild request JSON from the current controls">Build JSON</button>
+                <button type="button" data-copy="tryonRequest" title="Copy the try-on request JSON">Copy JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Request JSON</h2>
+              <span id="tryonRequestSize" class="pill">0 bytes</span>
+            </div>
+            <div class="panel-body">
+              <textarea id="tryonRequest" spellcheck="false"></textarea>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Try-On Output</h2>
+              <div class="status-line">
+                <span id="tryonStatus" class="pill">idle</span>
+                <span id="tryonLatency" class="pill">0 ms</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label>Output image</label>
+                <div id="tryonOutputPreview" class="preview-box empty">No output yet</div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>Metadata</label>
+                  <div class="codebox"><pre id="tryonMetadata">{}</pre></div>
+                </div>
+                <div class="field">
+                  <label>Logs</label>
+                  <div id="tryonLogs" class="logbox"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Raw response</label>
+                <div class="codebox"><pre id="tryonResponse">{}</pre></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-upscale" class="tab-panel" role="tabpanel" hidden>
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Upscaler Input</h2>
+              <span class="pill">POST /v1/upscale</span>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label for="upscaleImageUrl">Image URL</label>
+                <input id="upscaleImageUrl" placeholder="https://.../image.jpg">
+              </div>
+              <div class="field">
+                <label for="upscaleMetric">Metric</label>
+                <select id="upscaleMetric">
+                  <option value="2k" selected>2k</option>
+                  <option value="4k">4k</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Input preview</label>
+                <div id="upscaleInputPreview" class="preview-box empty">No URL entered</div>
+              </div>
+              <div class="actions">
+                <button class="primary" type="button" data-submit="upscale" title="Send the upscale JSON to /v1/upscale">Run Upscaler</button>
+                <button type="button" data-build="upscale" title="Rebuild request JSON from the current controls">Build JSON</button>
+                <button type="button" data-copy="upscaleRequest" title="Copy the upscale request JSON">Copy JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Request JSON</h2>
+              <span id="upscaleRequestSize" class="pill">0 bytes</span>
+            </div>
+            <div class="panel-body">
+              <textarea id="upscaleRequest" spellcheck="false"></textarea>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Upscaler Output</h2>
+              <div class="status-line">
+                <span id="upscaleStatus" class="pill">idle</span>
+                <span id="upscaleLatency" class="pill">0 ms</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label>Output image</label>
+                <div id="upscaleOutputPreview" class="preview-box empty">No output yet</div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>Metadata</label>
+                  <div class="codebox"><pre id="upscaleMetadata">{}</pre></div>
+                </div>
+                <div class="field">
+                  <label>Logs</label>
+                  <div id="upscaleLogs" class="logbox"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Raw response</label>
+                <div class="codebox"><pre id="upscaleResponse">{}</pre></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="history">
+        <div class="panel-head" style="padding-left:0;padding-right:0;border-bottom:0">
+          <h2>Request History</h2>
+          <button id="clearHistory" type="button">Clear History</button>
+        </div>
+        <div id="historyRows"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="tryonProductTemplate">
+    <div class="product" data-product>
+      <div class="product-head">
+        <strong data-title>Product</strong>
+        <button class="danger" type="button" data-remove-product>Remove</button>
+      </div>
+      <div class="field">
+        <label>Image URL</label>
+        <input data-product-image-url placeholder="https://.../garment.jpg">
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>Type</label>
+          <select data-product-type>
+            <option value="top">top</option>
+            <option value="bottom">bottom</option>
+            <option value="dress">dress</option>
+            <option value="outer">outer</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Prompt</label>
+          <input data-product-prompt placeholder="Apply this garment naturally.">
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    const endpoints = {
+      wardrobe: "/v1/wardrobe",
+      tryon: "/v1/tryon",
+      upscale: "/v1/upscale",
+    };
+
+    const state = {
+      wardrobeImage: null,
+      history: [],
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function pretty(value) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    function nowTime() {
+      return new Date().toLocaleTimeString("en-US", { hour12: false });
+    }
+
+    function byteSize(text) {
+      return new Blob([text || ""]).size;
+    }
+
+    function setPill(id, text, kind = "") {
+      const el = $(id);
+      el.textContent = text;
+      el.className = `pill ${kind}`.trim();
+    }
+
+    function setPreview(id, src, alt) {
+      const el = $(id);
+      if (!src) {
+        el.className = "preview-box empty";
+        el.textContent = "No output yet";
+        return;
+      }
+      el.className = "preview-box";
+      el.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = alt || "API image preview";
+      img.onerror = () => {
+        el.className = "preview-box empty";
+        el.textContent = "Image could not be loaded";
+      };
+      el.appendChild(img);
+    }
+
+    function log(api, message) {
+      const box = $(`${api}Logs`);
+      const row = document.createElement("div");
+      row.className = "log-row";
+      row.innerHTML = `<span class="log-time">${nowTime()}</span><span></span>`;
+      row.children[1].textContent = message;
+      box.appendChild(row);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function clearLogs(api) {
+      $(`${api}Logs`).innerHTML = "";
+    }
+
+    function normalizeBaseUrl() {
+      return $("apiBaseUrl").value.trim().replace(/\/+$/, "");
+    }
+
+    function authHeader() {
+      const raw = $("authToken").value.trim();
+      if (!raw) return "";
+      return raw.toLowerCase().startsWith("bearer ") ? raw : `Bearer ${raw}`;
+    }
+
+    function saveSettings() {
+      safeSetStorage("glamifyApiConsole.baseUrl", $("apiBaseUrl").value.trim());
+      safeSetStorage("glamifyApiConsole.authToken", $("authToken").value.trim());
+      ["wardrobe", "tryon", "upscale"].forEach((api) => log(api, "Settings saved."));
+    }
+
+    function loadSettings() {
+      const sameOrigin = window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : $("apiBaseUrl").value;
+      $("apiBaseUrl").value = safeGetStorage("glamifyApiConsole.baseUrl") || sameOrigin;
+      $("authToken").value = safeGetStorage("glamifyApiConsole.authToken") || "";
+    }
+
+    function safeGetStorage(key) {
+      try {
+        return window.localStorage ? localStorage.getItem(key) : "";
+      } catch {
+        return "";
+      }
+    }
+
+    function safeSetStorage(key, value) {
+      try {
+        if (window.localStorage) {
+          localStorage.setItem(key, value);
+        }
+      } catch {
+        // File-mode browsers can deny storage; the console should still work.
+      }
+    }
+
+    function updateFileModeNotice() {
+      const isFileMode = window.location.protocol === "file:";
+      $("fileModeNotice").classList.toggle("visible", isFileMode);
+    }
+
+    function updateRequestSize(api) {
+      const text = $(`${api}Request`).value;
+      $(`${api}RequestSize`).textContent = `${byteSize(text).toLocaleString()} bytes`;
+    }
+
+    function setRequestJson(api, payload) {
+      $(`${api}Request`).value = pretty(payload);
+      updateRequestSize(api);
+    }
+
+    function readRequestJson(api) {
+      const text = $(`${api}Request`).value.trim();
+      if (!text) throw new Error("Request JSON is empty.");
+      return JSON.parse(text);
+    }
+
+    async function fileToImageState(file) {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Unable to read file."));
+        reader.readAsDataURL(file);
+      });
+      const image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Unable to decode selected image."));
+        img.src = dataUrl;
+      });
+      const rawBase64 = dataUrl.split(",", 2)[1] || "";
+      return {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        dataUrl,
+        rawBase64,
+      };
+    }
+
+    function buildWardrobePayload() {
+      const imageMode = $("wardrobeBase64Mode").value;
+      return {
+        image: state.wardrobeImage
+          ? (imageMode === "dataUrl" ? state.wardrobeImage.dataUrl : state.wardrobeImage.rawBase64)
+          : "",
+        type: $("wardrobeType").value,
+      };
+    }
+
+    function buildTryonPayload() {
+      const products = Array.from(document.querySelectorAll("[data-product]")).map((el) => ({
+        image_url: el.querySelector("[data-product-image-url]").value.trim(),
+        type: el.querySelector("[data-product-type]").value,
+        prompt: el.querySelector("[data-product-prompt]").value.trim(),
+      }));
+      const payload = {
+        user_image: $("tryonUserImage").value.trim(),
+        products,
+      };
+      const seed = $("tryonSeed").value.trim();
+      const steps = $("tryonSteps").value.trim();
+      const guidance = $("tryonGuidance").value.trim();
+      if (seed) payload.seed = Number(seed);
+      if (steps) payload.steps = Number(steps);
+      if (guidance) payload.guidance_scale = Number(guidance);
+      return payload;
+    }
+
+    function buildUpscalePayload() {
+      return {
+        image_url: $("upscaleImageUrl").value.trim(),
+        metric: $("upscaleMetric").value,
+      };
+    }
+
+    function buildPayload(api) {
+      if (api === "wardrobe") return buildWardrobePayload();
+      if (api === "tryon") return buildTryonPayload();
+      return buildUpscalePayload();
+    }
+
+    function outputImageFromResponse(api, responseJson) {
+      const data = responseJson && responseJson.data;
+      if (!data) return "";
+      if (api === "wardrobe" && data.image) {
+        return String(data.image).startsWith("data:")
+          ? data.image
+          : `data:image/jpeg;base64,${data.image}`;
+      }
+      if ((api === "tryon" || api === "upscale") && data.url) {
+        return data.url;
+      }
+      return "";
+    }
+
+    function metadataFromResponse(api, responseJson) {
+      const data = responseJson && responseJson.data;
+      if (!data) return {};
+      if (api === "wardrobe") {
+        return {
+          id: data.id,
+          type: data.type,
+          category: data.category,
+          categoryLabel: data.categoryLabel,
+        };
+      }
+      return data.metadata || {};
+    }
+
+    async function submitApi(api) {
+      clearLogs(api);
+      setPill(`${api}Status`, "running", "warn");
+      setPill(`${api}Latency`, "0 ms");
+      $(`${api}Response`).textContent = "{}";
+      $(`${api}Metadata`).textContent = "{}";
+      setPreview(`${api}OutputPreview`, "", "");
+
+      let payload;
+      try {
+        payload = readRequestJson(api);
+      } catch (error) {
+        setPill(`${api}Status`, "invalid json", "error");
+        log(api, error.message);
+        return;
+      }
+
+      const baseUrl = normalizeBaseUrl();
+      const url = `${baseUrl}${endpoints[api]}`;
+      const headers = { "Content-Type": "application/json" };
+      const authorization = authHeader();
+      if (authorization) headers.Authorization = authorization;
+
+      const started = performance.now();
+      log(api, `POST ${url}`);
+      log(api, `Request size ${byteSize(JSON.stringify(payload)).toLocaleString()} bytes`);
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        const text = await response.text();
+        const elapsed = Math.round(performance.now() - started);
+        setPill(`${api}Latency`, `${elapsed.toLocaleString()} ms`);
+        log(api, `HTTP ${response.status} in ${elapsed.toLocaleString()} ms`);
+
+        let json;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = { raw: text };
+        }
+
+        $(`${api}Response`).textContent = pretty(json);
+        const metadata = metadataFromResponse(api, json);
+        $(`${api}Metadata`).textContent = pretty(metadata);
+        setPreview(`${api}OutputPreview`, outputImageFromResponse(api, json), `${api} output`);
+
+        const appStatus = json && typeof json.status !== "undefined" ? Number(json.status) : response.status;
+        const ok = response.ok && appStatus >= 200 && appStatus < 300;
+        setPill(`${api}Status`, String(appStatus || response.status), ok ? "ok" : "error");
+        addHistory(api, appStatus || response.status, elapsed, summarizeResponse(api, json));
+      } catch (error) {
+        const elapsed = Math.round(performance.now() - started);
+        setPill(`${api}Latency`, `${elapsed.toLocaleString()} ms`);
+        setPill(`${api}Status`, "failed", "error");
+        log(api, error.message);
+        $(`${api}Response`).textContent = pretty({ error: error.message });
+        addHistory(api, "failed", elapsed, error.message);
+      }
+    }
+
+    function summarizeResponse(api, json) {
+      if (!json) return "No JSON body";
+      if (json.message) return json.message;
+      if (api === "wardrobe" && json.data) {
+        return `${json.data.type || ""} ${json.data.category || ""}`.trim();
+      }
+      if (json.data && json.data.url) return json.data.url;
+      return "Completed";
+    }
+
+    function addHistory(api, status, latency, summary) {
+      state.history.unshift({
+        api,
+        status,
+        latency,
+        summary,
+        at: nowTime(),
+      });
+      state.history = state.history.slice(0, 30);
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const host = $("historyRows");
+      host.innerHTML = "";
+      if (!state.history.length) {
+        const empty = document.createElement("div");
+        empty.className = "small";
+        empty.textContent = "No requests yet.";
+        host.appendChild(empty);
+        return;
+      }
+      state.history.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "history-row";
+        const statusClass = Number(item.status) >= 200 && Number(item.status) < 300 ? "ok" : "error";
+        row.innerHTML = `
+          <span>${item.at} ${item.api}</span>
+          <span class="pill ${statusClass}">${item.status}</span>
+          <span>${Number(item.latency).toLocaleString()} ms</span>
+          <span></span>
+        `;
+        row.children[3].textContent = item.summary || "";
+        host.appendChild(row);
+      });
+    }
+
+    function addTryonProduct(values = {}) {
+      const template = $("tryonProductTemplate");
+      const node = template.content.firstElementChild.cloneNode(true);
+      $("tryonProducts").appendChild(node);
+      node.querySelector("[data-product-image-url]").value = values.image_url || "";
+      node.querySelector("[data-product-type]").value = values.type || "top";
+      node.querySelector("[data-product-prompt]").value = values.prompt || "";
+      node.querySelector("[data-remove-product]").addEventListener("click", () => {
+        node.remove();
+        renumberProducts();
+        setRequestJson("tryon", buildTryonPayload());
+      });
+      node.querySelectorAll("input, select").forEach((input) => {
+        input.addEventListener("input", () => setRequestJson("tryon", buildTryonPayload()));
+        input.addEventListener("change", () => setRequestJson("tryon", buildTryonPayload()));
+      });
+      renumberProducts();
+    }
+
+    function renumberProducts() {
+      Array.from(document.querySelectorAll("[data-product]")).forEach((node, index) => {
+        node.querySelector("[data-title]").textContent = `Product ${index + 1}`;
+      });
+    }
+
+    function wireTabs() {
+      document.querySelectorAll(".tab-button").forEach((button) => {
+        button.addEventListener("click", () => {
+          switchTab(button.dataset.tab);
+        });
+      });
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll(".tab-button").forEach((el) => {
+        const active = el.dataset.tab === tab;
+        el.classList.toggle("active", active);
+        el.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      document.querySelectorAll(".tab-panel").forEach((el) => {
+        const active = el.id === `tab-${tab}`;
+        el.classList.toggle("active", active);
+        el.hidden = !active;
+      });
+    }
+
+    function wireFormBuilders() {
+      document.querySelectorAll("[data-build]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const api = button.dataset.build;
+          setRequestJson(api, buildPayload(api));
+          log(api, "Request JSON rebuilt from controls.");
+        });
+      });
+      document.querySelectorAll("[data-submit]").forEach((button) => {
+        button.addEventListener("click", () => submitApi(button.dataset.submit));
+      });
+      document.querySelectorAll("[data-copy]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const target = button.dataset.copy;
+          const api = target.replace("Request", "");
+          const text = $(target).value;
+          try {
+            if (navigator.clipboard) {
+              await navigator.clipboard.writeText(text);
+            } else {
+              $(target).focus();
+              $(target).select();
+              document.execCommand("copy");
+            }
+            log(api, "Request JSON copied.");
+          } catch (error) {
+            log(api, `Copy failed: ${error.message}`);
+          }
+        });
+      });
+      ["wardrobeRequest", "tryonRequest", "upscaleRequest"].forEach((id) => {
+        $(id).addEventListener("input", () => updateRequestSize(id.replace("Request", "")));
+      });
+    }
+
+    function wireInputs() {
+      $("saveSettings").addEventListener("click", saveSettings);
+      $("openServedConsole").addEventListener("click", () => {
+        const baseUrl = normalizeBaseUrl() || "http://localhost:8000";
+        window.location.href = `${baseUrl}/tools/api-console`;
+      });
+      ["wardrobeType", "wardrobeBase64Mode"].forEach((id) => {
+        $(id).addEventListener("change", () => setRequestJson("wardrobe", buildWardrobePayload()));
+      });
+      $("wardrobeImage").addEventListener("change", async (event) => {
+        try {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          state.wardrobeImage = await fileToImageState(file);
+          $("wardrobeImageMeta").textContent = `${state.wardrobeImage.name} - ${state.wardrobeImage.width}x${state.wardrobeImage.height} - ${state.wardrobeImage.type || "unknown"} - ${state.wardrobeImage.size.toLocaleString()} bytes`;
+          setPreview("wardrobeInputPreview", state.wardrobeImage.dataUrl, "Wardrobe input");
+          setRequestJson("wardrobe", buildWardrobePayload());
+          log("wardrobe", "Input image loaded.");
+        } catch (error) {
+          state.wardrobeImage = null;
+          $("wardrobeImageMeta").textContent = error.message;
+          log("wardrobe", `Image load failed: ${error.message}`);
+        }
+      });
+      ["tryonUserImage", "tryonSeed", "tryonSteps", "tryonGuidance"].forEach((id) => {
+        $(id).addEventListener("input", () => setRequestJson("tryon", buildTryonPayload()));
+      });
+      $("addTryonProduct").addEventListener("click", () => {
+        addTryonProduct();
+        setRequestJson("tryon", buildTryonPayload());
+      });
+      ["upscaleImageUrl", "upscaleMetric"].forEach((id) => {
+        $(id).addEventListener("input", () => {
+          setRequestJson("upscale", buildUpscalePayload());
+          const url = $("upscaleImageUrl").value.trim();
+          $("upscaleInputPreview").className = url ? "preview-box" : "preview-box empty";
+          setPreview("upscaleInputPreview", url, "Upscale input");
+          if (!url) {
+            $("upscaleInputPreview").textContent = "No URL entered";
+          }
+        });
+        $(id).addEventListener("change", () => setRequestJson("upscale", buildUpscalePayload()));
+      });
+      $("clearHistory").addEventListener("click", () => {
+        state.history = [];
+        renderHistory();
+      });
+    }
+
+    function init() {
+      wireTabs();
+      wireFormBuilders();
+      wireInputs();
+      loadSettings();
+      updateFileModeNotice();
+      addTryonProduct({
+        image_url: "",
+        type: "top",
+        prompt: "Apply this garment naturally.",
+      });
+      setRequestJson("wardrobe", buildWardrobePayload());
+      setRequestJson("tryon", buildTryonPayload());
+      setRequestJson("upscale", buildUpscalePayload());
+      ["wardrobe", "tryon", "upscale"].forEach((api) => {
+        clearLogs(api);
+        log(api, "Ready.");
+      });
+      renderHistory();
+    }
+
+    init();
+  </script>
+</body>
+</html>

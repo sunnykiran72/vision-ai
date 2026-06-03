@@ -5,12 +5,17 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TRYON_SPECIALIST_KEYS = ("top", "bottom", "dress", "multi")
+RESIDENT_RUNTIME_KEYS = ("wardrobe", "tryon", "upscale")
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = Field(default="local", alias="APP_ENV")
+    resident_runtimes: str = Field(
+        default="wardrobe,tryon,upscale",
+        alias="RESIDENT_RUNTIMES",
+    )
 
     jwt_access_secret: str = Field(default="", alias="JWT_ACCESS_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
@@ -134,9 +139,6 @@ def validate_startup_settings(settings: Settings) -> None:
         "WARDROBE_LORA_BOTTOM_PATH": settings.wardrobe_lora_bottom_path,
         "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
         "GLAMIFY_API_BASE_URL": settings.glamify_api_base_url,
-        "UPSCALE_MODEL_PATH": settings.upscale_model_path,
-        "UPSCALE_MODEL_VARIANT": settings.upscale_model_variant,
-        "UPSCALE_CLI_PATH": settings.upscale_cli_path,
     }
 
     if settings.tryon_use_specialists:
@@ -152,6 +154,16 @@ def validate_startup_settings(settings: Settings) -> None:
         )
     else:
         required_values["TRYON_LORA_PATH"] = settings.tryon_lora_path
+
+    enabled_runtimes = get_enabled_resident_runtimes(settings)
+    if "upscale" in enabled_runtimes:
+        required_values.update(
+            {
+                "UPSCALE_MODEL_PATH": settings.upscale_model_path,
+                "UPSCALE_MODEL_VARIANT": settings.upscale_model_variant,
+                "UPSCALE_CLI_PATH": settings.upscale_cli_path,
+            },
+        )
 
     for field_name, value in required_values.items():
         if not str(value).strip():
@@ -214,6 +226,25 @@ def get_enabled_tryon_specialists(settings: Settings) -> tuple[str, ...]:
             + ", ".join(invalid)
             + ". Expected any of: "
             + ", ".join(TRYON_SPECIALIST_KEYS),
+        )
+    return tuple(dict.fromkeys(raw_values))
+
+
+def get_enabled_resident_runtimes(settings: Settings) -> tuple[str, ...]:
+    raw_values = [
+        value.strip().lower()
+        for value in str(settings.resident_runtimes or "").split(",")
+        if value.strip()
+    ]
+    if not raw_values:
+        raise RuntimeError("RESIDENT_RUNTIMES must include at least one runtime.")
+    invalid = sorted(set(raw_values) - set(RESIDENT_RUNTIME_KEYS))
+    if invalid:
+        raise RuntimeError(
+            "Invalid RESIDENT_RUNTIMES values: "
+            + ", ".join(invalid)
+            + ". Expected any of: "
+            + ", ".join(RESIDENT_RUNTIME_KEYS),
         )
     return tuple(dict.fromkeys(raw_values))
 

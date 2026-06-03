@@ -88,7 +88,7 @@ class GlamifyProgressClient:
         marqo: dict[str, Any],
         metadata: dict[str, Any],
     ) -> None:
-        base_url = str(self._settings.glamify_api_base_url).rstrip("/")
+        endpoint_url = _wardrobe_progress_endpoint_url(self._settings.glamify_api_base_url)
         payload = {
             "id": progress_id,
             "inputImage": input_url,
@@ -105,7 +105,7 @@ class GlamifyProgressClient:
         }
         timeout = max(5, int(wardrobe_constants.GLAMIFY_API_TIMEOUT_SECONDS))
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(f"{base_url}/wardrobe/progress", headers=headers, json=payload)
+            response = client.post(endpoint_url, headers=headers, json=payload)
             response.raise_for_status()
 
     def _upload_bytes(
@@ -121,3 +121,11 @@ class GlamifyProgressClient:
             object_name=object_name,
             content_type=content_type,
         )
+
+
+def _wardrobe_progress_endpoint_url(raw_base_url: str) -> str:
+    base_url = str(raw_base_url or "").rstrip("/")
+    suffix = "/wardrobe/progress"
+    if base_url.endswith(suffix):
+        return base_url
+    return f"{base_url}{suffix}"

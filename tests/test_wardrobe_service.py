@@ -145,6 +145,7 @@ def test_run_wardrobe_request_returns_success_and_cleans_workspace(
         "category": "trousers",
         "category_label": "Trousers",
         "score": 0.88,
+        "source": "marqo",
     }
     assert not any(tmp_path.iterdir())
 
@@ -171,7 +172,7 @@ def test_wardrobe_detector_no_hit_returns_400(monkeypatch: MonkeyPatch, tmp_path
     assert response.data is None
 
 
-def test_wardrobe_marqo_low_confidence_returns_400(
+def test_wardrobe_marqo_low_confidence_uses_default_category(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -218,6 +219,20 @@ def test_wardrobe_marqo_low_confidence_returns_400(
 
     monkeypatch.setattr(wardrobe_service, "get_marqo_fashion_client", lambda: FakeMarqo())
 
+    class FakeProgressClient:
+        def __init__(self, _settings: Settings):
+            pass
+
+        def upload_input_background(self, **_kwargs: object) -> Future[str]:
+            future: Future[str] = Future()
+            future.set_result("https://example.com/input.jpg")
+            return future
+
+        def submit_output_and_progress_background(self, **_kwargs: object) -> None:
+            pass
+
+    monkeypatch.setattr(wardrobe_service, "GlamifyProgressClient", FakeProgressClient)
+
     response = wardrobe_service.run_wardrobe_request(
         payload,
         settings=Settings(WARDROBE_WORK_ROOT=str(tmp_path)),
@@ -225,8 +240,95 @@ def test_wardrobe_marqo_low_confidence_returns_400(
         bearer_token="Bearer token",
     )
 
-    assert response.status == 400
-    assert response.data is None
+    assert response.status == 200
+    assert response.data is not None
+    assert response.data.category == "day_dresses"
+    assert response.data.category_label == "Day Dresses"
+    assert not any(tmp_path.iterdir())
+
+
+def test_wardrobe_marqo_low_confidence_ranked_match_is_still_returned(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    payload = WardrobeAnalyzeRequest.model_validate(
+        {"image": _build_base64_image(512, 512), "type": "bottom"},
+    )
+
+    class FakeDetector:
+        def detect(self, image: Image.Image) -> list[dict[str, object]]:
+            return [{"label": "pants", "score": 0.9}]
+
+    monkeypatch.setattr(wardrobe_service, "get_fashion_detection_client", lambda: FakeDetector())
+
+    class FakeRunner:
+        def run_extract(self, **kwargs: object) -> WardrobeRunResult:
+            output_path = Path(str(kwargs["output_path"]))
+            output = Image.new("RGB", (832, 1248), (20, 30, 40))
+            output.save(output_path, format="JPEG")
+            return WardrobeRunResult(image=output, metadata={}, wall_seconds=0.1)
+
+    monkeypatch.setattr(wardrobe_service, "get_wardrobe_runner", lambda *_args: FakeRunner())
+
+    class ImmediateCoordinator:
+        def run(self, fn: Callable[[], T]) -> T:
+            return fn()
+
+    monkeypatch.setattr(
+        wardrobe_service,
+        "get_wardrobe_execution_coordinator",
+        lambda *_args: ImmediateCoordinator(),
+    )
+
+    class FakeMarqo:
+        def classify(self, *, image: Image.Image, garment_type: str):
+            return MarqoClassificationResult(
+                applied=False,
+                category_key="trousers",
+                category_label="Trousers",
+                score=0.12,
+                min_confidence=0.25,
+                top_matches=[
+                    {
+                        "category_key": "trousers",
+                        "category_label": "Trousers",
+                        "parent_key": "bottoms",
+                        "score": 0.12,
+                    },
+                ],
+                reason="below_threshold",
+            )
+
+    monkeypatch.setattr(wardrobe_service, "get_marqo_fashion_client", lambda: FakeMarqo())
+
+    sync_calls: list[dict[str, object]] = []
+
+    class FakeProgressClient:
+        def __init__(self, _settings: Settings):
+            pass
+
+        def upload_input_background(self, **_kwargs: object) -> Future[str]:
+            future: Future[str] = Future()
+            future.set_result("https://example.com/input.jpg")
+            return future
+
+        def submit_output_and_progress_background(self, **kwargs: object) -> None:
+            sync_calls.append(kwargs)
+
+    monkeypatch.setattr(wardrobe_service, "GlamifyProgressClient", FakeProgressClient)
+
+    response = wardrobe_service.run_wardrobe_request(
+        payload,
+        settings=Settings(WARDROBE_WORK_ROOT=str(tmp_path)),
+        user_id="user-123",
+        bearer_token="Bearer token",
+    )
+
+    assert response.status == 200
+    assert response.data is not None
+    assert response.data.category == "trousers"
+    assert sync_calls[0]["classification"]["source"] == "marqo_low_confidence"
+    assert sync_calls[0]["marqo"]["reason"] == "below_threshold"
     assert not any(tmp_path.iterdir())
 
 

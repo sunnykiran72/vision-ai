@@ -108,11 +108,15 @@ def run_wardrobe_request(
                 garment_type=garment_type,
             ),
         )
-        if not marqo_result.applied or not marqo_result.category_key:
-            return _error_response(
-                http_status.BAD_REQUEST,
-                "Generated garment category is uncertain.",
+        category_key, category_label, category_score, category_source = (
+            _resolve_wardrobe_category(
+                garment_type=garment_type,
+                category_key=marqo_result.category_key,
+                category_label=marqo_result.category_label,
+                score=marqo_result.score,
+                applied=marqo_result.applied,
             )
+        )
 
         metadata = {
             "prompt": prompt,
@@ -121,15 +125,18 @@ def run_wardrobe_request(
         classification = {
             "primary_category": _primary_category_for_marqo_result(
                 garment_type,
-                marqo_result.category_key,
+                category_key,
             ),
-            "category": marqo_result.category_key,
-            "category_label": _display_category_label(marqo_result.category_label),
-            "score": marqo_result.score,
+            "category": category_key,
+            "category_label": _display_category_label(category_label),
+            "score": category_score,
+            "source": category_source,
         }
         marqo_metadata = {
             "model": wardrobe_constants.MARQO_MODEL_ID,
             "threshold": marqo_result.min_confidence,
+            "applied": marqo_result.applied,
+            "reason": marqo_result.reason,
             "top_matches": marqo_result.top_matches,
         }
         progress_client.submit_output_and_progress_background(
@@ -151,8 +158,8 @@ def run_wardrobe_request(
                 id=job_paths.job_id,
                 type=payload.type,
                 image=base64.b64encode(output_jpeg).decode("ascii"),
-                category=marqo_result.category_key,
-                categoryLabel=_display_category_label(marqo_result.category_label),
+                category=category_key,
+                categoryLabel=_display_category_label(category_label),
             ),
         )
     except WardrobeValidationError as exc:
@@ -271,6 +278,27 @@ def _primary_category_key_for_type(garment_type: str) -> str:
     if garment_type == "dress":
         return "dresses"
     return "tops"
+
+
+def _resolve_wardrobe_category(
+    *,
+    garment_type: str,
+    category_key: str,
+    category_label: str,
+    score: float,
+    applied: bool,
+) -> tuple[str, str, float, str]:
+    if category_key and category_label:
+        source = "marqo" if applied else "marqo_low_confidence"
+        return category_key, category_label, float(score), source
+
+    candidates = wardrobe_constants.MARQO_CANDIDATES_BY_TYPE.get(str(garment_type), ())
+    if candidates:
+        candidate = candidates[0]
+        return candidate.key, candidate.label, 0.0, "default_candidate_fallback"
+
+    fallback_label = _display_category_label(garment_type)
+    return str(garment_type), fallback_label, 0.0, "requested_type_fallback"
 
 
 def _display_category_label(label: str) -> str:

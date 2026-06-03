@@ -13,96 +13,77 @@ from typing import Any
 from PIL import Image
 
 from app.config import Settings
-from app.runtime.tryon_types import TryonRunResult, TryonRuntimeStatus
+from app.constants import wardrobe as wardrobe_constants
+from app.runtime.wardrobe_types import WardrobeRunResult, WardrobeRuntimeStatus
 
 logger = logging.getLogger("glamify-ai")
 
 
-class TryonRuntimeError(RuntimeError):
+class WardrobeRuntimeError(RuntimeError):
     pass
 
 
-class TryonGenerationError(RuntimeError):
+class WardrobeGenerationError(RuntimeError):
     pass
 
 
-SPECIALIST_CATEGORIES: tuple[str, ...] = ("top", "bottom", "dress", "multi")
+WARDROBE_CATEGORIES: tuple[str, ...] = ("top", "bottom", "dress")
 
 
-class QwenTryonAitkClient:
+class QwenWardrobeAitkClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._aitk_root = Path(settings.ai_toolkit_root).expanduser()
         self._model_path = Path(settings.qwen_image_edit_model_path).expanduser()
-        self._use_specialists = bool(settings.tryon_use_specialists)
-        self._checkpoint_path = Path(settings.tryon_lora_path).expanduser()
         self._specialist_paths: dict[str, Path] = {
-            "top": Path(settings.tryon_lora_top_path).expanduser(),
-            "bottom": Path(settings.tryon_lora_bottom_path).expanduser(),
-            "dress": Path(settings.tryon_lora_dress_path).expanduser(),
-            "multi": Path(settings.tryon_lora_multi_path).expanduser(),
+            "top": Path(settings.wardrobe_lora_top_path).expanduser(),
+            "bottom": Path(settings.wardrobe_lora_bottom_path).expanduser(),
+            "dress": Path(settings.wardrobe_lora_dress_path).expanduser(),
         }
         self._pipeline: Any | None = None
         self._network: Any | None = None
-        self._loaded_checkpoint: str | None = None
+        self._toolkit: dict[str, Any] | None = None
+        self._torch_module: Any | None = None
         self._specialist_state_dicts: dict[str, OrderedDict[str, Any]] = {}
         self._active_specialist: str | None = None
-        self._torch_module: Any | None = None
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
         self._device = "cpu"
         self._dtype_name = "float32"
-        self._toolkit: dict[str, Any] | None = None
 
     def warmup(self) -> None:
         self._ensure_ready()
-        if self._use_specialists:
-            self._load_specialist_state_dicts()
-        else:
-            self._load_checkpoint_if_needed()
+        self._load_specialist_state_dicts()
 
-    def status(self) -> TryonRuntimeStatus:
-        lora_loaded = (
-            bool(self._specialist_state_dicts)
-            if self._use_specialists
-            else self._loaded_checkpoint is not None
-        )
-        return TryonRuntimeStatus(
+    def status(self) -> WardrobeRuntimeStatus:
+        return WardrobeRuntimeStatus(
             loaded=self._pipeline is not None and self._network is not None,
             backend="ai_toolkit_exact" if self._pipeline is not None else None,
-            lora_loaded=lora_loaded,
+            loras_loaded=bool(self._specialist_state_dicts),
         )
 
     def set_active_specialist(self, category: str) -> None:
-        if not self._use_specialists:
-            return
-        if category not in SPECIALIST_CATEGORIES:
-            raise TryonRuntimeError(f"Unknown try-on specialist category: {category}")
+        if category not in WARDROBE_CATEGORIES:
+            raise WardrobeRuntimeError(f"Unknown wardrobe specialist category: {category}")
         self._ensure_ready()
         self._load_specialist_state_dicts()
         if self._active_specialist == category:
             return
         if self._network is None:
-            raise TryonRuntimeError("AI-Toolkit LoRA network is not initialized.")
-        state = self._specialist_state_dicts[category]
-        self._network.load_state_dict(state, strict=False)
+            raise WardrobeRuntimeError("AI-Toolkit wardrobe LoRA network is not initialized.")
+        self._network.load_state_dict(self._specialist_state_dicts[category], strict=False)
+        self._network._update_torch_multiplier()
         self._active_specialist = category
-        logger.info("Switched try-on specialist LoRA to '%s'", category)
+        logger.info("Switched wardrobe extraction LoRA to '%s'", category)
 
-    def run_tryon(
+    def run_extract(
         self,
         *,
-        person_image_path: str,
-        garment_reference_path: str,
+        input_image_path: str,
         prompt: str,
-        steps: int,
-        guidance_scale: float,
-        seed: int,
+        garment_type: str,
         output_path: str,
-        output_width: int,
-        output_height: int,
-        lora_key: str | None = None,
-    ) -> TryonRunResult:
+    ) -> WardrobeRunResult:
         self._ensure_ready()
         if (
             self._pipeline is None
@@ -110,77 +91,63 @@ class QwenTryonAitkClient:
             or self._toolkit is None
             or self._torch_module is None
         ):
-            raise TryonRuntimeError("AI-Toolkit try-on runtime is not loaded.")
-
-        if self._use_specialists:
-            if lora_key is None:
-                raise TryonRuntimeError(
-                    "lora_key is required when TRYON_USE_SPECIALISTS is enabled.",
-                )
-            self.set_active_specialist(lora_key)
-            active_checkpoint = str(self._specialist_paths[lora_key])
-        else:
-            self._load_checkpoint_if_needed()
-            active_checkpoint = str(self._checkpoint_path)
+            raise WardrobeRuntimeError("AI-Toolkit wardrobe runtime is not loaded.")
 
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         started_at = time.perf_counter()
         conf = self._toolkit["GenerateImageConfig"](
             prompt=str(prompt).strip(),
-            width=int(output_width),
-            height=int(output_height),
+            width=wardrobe_constants.OUTPUT_WIDTH,
+            height=wardrobe_constants.OUTPUT_HEIGHT,
             negative_prompt="",
-            seed=int(seed),
-            guidance_scale=float(guidance_scale),
-            guidance_rescale=float(self._settings.tryon_guidance_rescale),
-            num_inference_steps=int(steps),
-            network_multiplier=float(self._settings.tryon_lora_scale),
+            seed=wardrobe_constants.GENERATION_SEED,
+            guidance_scale=wardrobe_constants.GENERATION_GUIDANCE_SCALE,
+            guidance_rescale=wardrobe_constants.GENERATION_GUIDANCE_RESCALE,
+            num_inference_steps=wardrobe_constants.GENERATION_STEPS,
+            network_multiplier=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
             output_path=str(output_file),
             output_ext="jpg",
-            ctrl_img_1=str(person_image_path),
-            ctrl_img_2=str(garment_reference_path),
-            do_cfg_norm=bool(self._settings.tryon_do_cfg_norm),
+            ctrl_img=str(input_image_path),
+            do_cfg_norm=wardrobe_constants.GENERATION_DO_CFG_NORM,
         )
 
         with self._infer_lock, self._torch_module.inference_mode():
+            self.set_active_specialist(garment_type)
             self._pipeline.generate_images(
                 [conf],
-                sampler=str(self._settings.tryon_sampler),
+                sampler=wardrobe_constants.GENERATION_SAMPLER,
             )
 
         if not output_file.exists():
-            raise TryonGenerationError("No image was generated by the try-on runtime.")
+            raise WardrobeGenerationError("No image was generated by the wardrobe runtime.")
 
         image = Image.open(output_file).convert("RGB")
         metadata = {
             "backend": "ai_toolkit_exact",
-            "architecture": "qwen_image_edit_plus",
+            "architecture": "qwen_image_edit",
             "model_source": str(self._model_path),
             "ai_toolkit_root": str(self._aitk_root),
-            "checkpoint_path": active_checkpoint,
-            "lora_key": lora_key if self._use_specialists else None,
-            "lora_rank": int(self._settings.tryon_lora_rank),
-            "lora_alpha": int(self._settings.tryon_lora_alpha),
-            "network_multiplier": float(self._settings.tryon_lora_scale),
-            "guidance_scale": float(guidance_scale),
-            "guidance_rescale": float(self._settings.tryon_guidance_rescale),
-            "do_cfg_norm": bool(self._settings.tryon_do_cfg_norm),
-            "sampler": str(self._settings.tryon_sampler),
-            "seed": int(seed),
-            "steps": int(steps),
-            "control_order": {
-                "ctrl_img_1": "person",
-                "ctrl_img_2": "garment_reference",
-            },
+            "checkpoint_path": str(self._specialist_paths[garment_type]),
+            "lora_key": garment_type,
+            "lora_rank": wardrobe_constants.LORA_RANK,
+            "lora_alpha": wardrobe_constants.LORA_ALPHA,
+            "network_multiplier": wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
+            "guidance_scale": wardrobe_constants.GENERATION_GUIDANCE_SCALE,
+            "guidance_rescale": wardrobe_constants.GENERATION_GUIDANCE_RESCALE,
+            "do_cfg_norm": wardrobe_constants.GENERATION_DO_CFG_NORM,
+            "sampler": wardrobe_constants.GENERATION_SAMPLER,
+            "seed": wardrobe_constants.GENERATION_SEED,
+            "steps": wardrobe_constants.GENERATION_STEPS,
+            "control_order": {"ctrl_img": "garment_input"},
             "output_size": {
-                "width": int(output_width),
-                "height": int(output_height),
+                "width": wardrobe_constants.OUTPUT_WIDTH,
+                "height": wardrobe_constants.OUTPUT_HEIGHT,
             },
             "dtype": self._dtype_name,
             "device": self._device,
         }
-        return TryonRunResult(
+        return WardrobeRunResult(
             image=image,
             metadata=metadata,
             wall_seconds=float(round(time.perf_counter() - started_at, 3)),
@@ -195,14 +162,14 @@ class QwenTryonAitkClient:
 
     def _load_runtime(self) -> None:
         if not self._aitk_root.exists():
-            raise TryonRuntimeError(f"AI-Toolkit root does not exist: {self._aitk_root}")
+            raise WardrobeRuntimeError(f"AI-Toolkit root does not exist: {self._aitk_root}")
         if not self._model_path.exists():
-            raise TryonRuntimeError(f"Qwen model path does not exist: {self._model_path}")
+            raise WardrobeRuntimeError(f"Qwen model path does not exist: {self._model_path}")
 
         os.environ.setdefault("DISABLE_TELEMETRY", "YES")
         os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
-        # Match the validated RunPod AI-Toolkit startup path. This is process-global,
-        # so the rest of the service must keep using absolute paths.
+        # AI-Toolkit resolves some assets relative to its repository root.
+        # This is process-global, so the bootstrap keeps this API to one worker.
         os.chdir(self._aitk_root)
         aitk_root_str = str(self._aitk_root)
         if aitk_root_str not in sys.path:
@@ -214,7 +181,7 @@ class QwenTryonAitkClient:
             train_tools_module = importlib.import_module("toolkit.train_tools")
             model_module = importlib.import_module("toolkit.util.get_model")
         except Exception as exc:
-            raise TryonRuntimeError(
+            raise WardrobeRuntimeError(
                 f"Unable to import AI-Toolkit modules from {self._aitk_root}: {exc}",
             ) from exc
 
@@ -228,7 +195,7 @@ class QwenTryonAitkClient:
         model_config = ModelConfig(
             **{
                 "name_or_path": str(self._model_path),
-                "arch": "qwen_image_edit_plus",
+                "arch": "qwen_image_edit",
                 "quantize": False,
                 "quantize_te": False,
                 "low_vram": False,
@@ -237,8 +204,8 @@ class QwenTryonAitkClient:
         net_config = NetworkConfig(
             **{
                 "type": "lora",
-                "linear": int(self._settings.tryon_lora_rank),
-                "linear_alpha": int(self._settings.tryon_lora_alpha),
+                "linear": wardrobe_constants.LORA_RANK,
+                "linear_alpha": wardrobe_constants.LORA_ALPHA,
             },
         )
         torch_module = importlib.import_module("torch")
@@ -268,7 +235,7 @@ class QwenTryonAitkClient:
             text_encoder=sd.text_encoder,
             unet=sd.get_model_to_train(),
             lora_dim=net_config.linear,
-            multiplier=float(self._settings.tryon_lora_scale),
+            multiplier=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
             alpha=net_config.linear_alpha,
             train_unet=True,
             train_text_encoder=False,
@@ -300,39 +267,19 @@ class QwenTryonAitkClient:
 
         self._pipeline = sd
         self._network = network
-        self._toolkit = {
-            "GenerateImageConfig": GenerateImageConfig,
-        }
-        logger.info(
-            "Qwen try-on AI-Toolkit runtime ready (device=%s, specialists=%s)",
-            self._device,
-            self._use_specialists,
-        )
-
-    def _load_checkpoint_if_needed(self) -> None:
-        if self._network is None:
-            raise TryonRuntimeError("AI-Toolkit LoRA network is not initialized.")
-        checkpoint = str(self._checkpoint_path)
-        if not self._checkpoint_path.exists():
-            raise TryonRuntimeError(f"Try-on checkpoint does not exist: {self._checkpoint_path}")
-        if self._loaded_checkpoint == checkpoint:
-            return
-        self._network.load_weights(checkpoint)
-        self._loaded_checkpoint = checkpoint
-        logger.info("Loaded try-on checkpoint: %s", checkpoint)
+        self._toolkit = {"GenerateImageConfig": GenerateImageConfig}
+        logger.info("Qwen wardrobe AI-Toolkit runtime ready (device=%s)", self._device)
 
     def _load_specialist_state_dicts(self) -> None:
-        if not self._use_specialists:
-            return
         if self._network is None:
-            raise TryonRuntimeError("AI-Toolkit LoRA network is not initialized.")
+            raise WardrobeRuntimeError("AI-Toolkit wardrobe LoRA network is not initialized.")
         if self._specialist_state_dicts:
             return
-        for category in SPECIALIST_CATEGORIES:
+        for category in WARDROBE_CATEGORIES:
             path = self._specialist_paths[category]
             if not path.exists():
-                raise TryonRuntimeError(
-                    f"Try-on specialist checkpoint missing for '{category}': {path}",
+                raise WardrobeRuntimeError(
+                    f"Wardrobe specialist checkpoint missing for '{category}': {path}",
                 )
             self._network.load_weights(str(path))
             snapshot = OrderedDict(
@@ -340,7 +287,8 @@ class QwenTryonAitkClient:
                 for key, tensor in self._network.state_dict().items()
             )
             self._specialist_state_dicts[category] = snapshot
-            logger.info("Cached specialist LoRA weights: %s -> %s", category, path)
-        first = SPECIALIST_CATEGORIES[0]
+            logger.info("Cached wardrobe LoRA weights: %s -> %s", category, path)
+        first = WARDROBE_CATEGORIES[0]
         self._network.load_state_dict(self._specialist_state_dicts[first], strict=False)
+        self._network._update_torch_multiplier()
         self._active_specialist = first

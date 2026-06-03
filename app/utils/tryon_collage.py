@@ -176,13 +176,26 @@ def _trim_empty_border(image: Image.Image) -> Image.Image:
 
 
 def _average_corner_color(image: Image.Image) -> tuple[int, int, int]:
-    corners = [
-        image.getpixel((0, 0)),
-        image.getpixel((image.width - 1, 0)),
-        image.getpixel((0, image.height - 1)),
-        image.getpixel((image.width - 1, image.height - 1)),
-    ]
-    return tuple(int(round(sum(pixel[channel] for pixel in corners) / 4)) for channel in range(3))
+    corners: list[tuple[int, int, int]] = []
+    for point in (
+        (0, 0),
+        (image.width - 1, 0),
+        (0, image.height - 1),
+        (image.width - 1, image.height - 1),
+    ):
+        pixel = image.getpixel(point)
+        if isinstance(pixel, tuple):
+            corners.append((int(pixel[0]), int(pixel[1]), int(pixel[2])))
+        elif isinstance(pixel, int | float):
+            value = int(pixel)
+            corners.append((value, value, value))
+        else:
+            corners.append((0, 0, 0))
+    return (
+        int(round(sum(pixel[0] for pixel in corners) / 4)),
+        int(round(sum(pixel[1] for pixel in corners) / 4)),
+        int(round(sum(pixel[2] for pixel in corners) / 4)),
+    )
 
 
 def _expand_bbox(

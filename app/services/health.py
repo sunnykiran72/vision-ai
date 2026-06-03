@@ -12,6 +12,7 @@ from app.models.health import (
 )
 from app.runtime.tryon_runtime import get_tryon_runtime_status
 from app.runtime.upscale_runtime import get_upscale_runtime_status
+from app.runtime.wardrobe_runtime import get_wardrobe_runtime_status
 
 
 def build_health_response(settings: Settings) -> HealthResponse:
@@ -20,11 +21,19 @@ def build_health_response(settings: Settings) -> HealthResponse:
         configured_domains.append("security")
     if settings.azure_storage_connection_string and settings.azure_storage_container:
         configured_domains.append("storage")
+    if (
+        settings.qwen_image_edit_model_path
+        or settings.wardrobe_lora_top_path
+        or settings.wardrobe_lora_bottom_path
+        or settings.wardrobe_lora_dress_path
+    ):
+        configured_domains.append("wardrobe")
     if settings.qwen_image_edit_model_path or settings.tryon_lora_path:
         configured_domains.append("tryon")
     if settings.upscale_model_path:
         configured_domains.append("upscale")
 
+    wardrobe_runtime = get_wardrobe_runtime_status(settings)
     tryon_runtime = get_tryon_runtime_status(settings)
     upscale_runtime = get_upscale_runtime_status(settings)
     metadata = HealthMetadata(
@@ -40,6 +49,17 @@ def build_health_response(settings: Settings) -> HealthResponse:
         ],
         configured_domains=configured_domains,
         runtimes={
+            "wardrobe": RuntimeMetadata(
+                runner=RuntimeRunnerMetadata(
+                    loaded=wardrobe_runtime.runner.loaded,
+                    backend=wardrobe_runtime.runner.backend,
+                ),
+                queue=RuntimeQueueMetadata(
+                    active_jobs=wardrobe_runtime.coordinator.active_jobs,
+                    waiting_jobs=wardrobe_runtime.coordinator.waiting_jobs,
+                    max_queue_size=wardrobe_runtime.coordinator.max_queue_size,
+                ),
+            ),
             "tryon": RuntimeMetadata(
                 runner=RuntimeRunnerMetadata(
                     loaded=tryon_runtime.runner.loaded,

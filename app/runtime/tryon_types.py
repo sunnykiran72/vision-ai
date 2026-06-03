@@ -35,4 +35,5 @@ class TryonRunner(Protocol):
         output_path: str,
         output_width: int,
         output_height: int,
+        lora_key: str | None = None,
     ) -> TryonRunResult: ...

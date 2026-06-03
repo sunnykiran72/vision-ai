@@ -10,12 +10,13 @@ from app.clients.qwen_tryon_aitk import TryonGenerationError, TryonRuntimeError
 from app.clients.storage import AzureStorageClient
 from app.config import Settings, get_settings
 from app.constants import http_status
-from app.models.tryon import TryonRequest, TryonResponse, TryonResponseData
+from app.models.tryon import TryonProduct, TryonRequest, TryonResponse, TryonResponseData
 from app.runtime.coordinator import QueueFullError, QueueTimeoutError
 from app.runtime.tryon_runtime import (
     get_tryon_execution_coordinator,
     get_tryon_runner,
 )
+from app.services.tryon_routing import TryonRoutingDecision, resolve_tryon_route
 from app.utils.media_utils import (
     build_storage_object_name,
     build_tryon_job_media_paths,
@@ -27,6 +28,7 @@ from app.utils.tryon_collage import (
     build_product_reference,
 )
 
+# Legacy free-form prompt sections — used only when TRYON_USE_SPECIALISTS=false.
 TRYON_SINGLE_REFERENCE_PROMPT = "Apply the reference garment from image 2 to the person in image 1."
 TRYON_MULTI_REFERENCE_PROMPT = "Apply the reference garments from image 2 to the person in image 1."
 TRYON_IDENTITY_CLAUSE = (
@@ -66,6 +68,12 @@ def run_tryon_request(
 
         user_download = download_media_from_url(str(payload.user_image))
         user_image = Image.open(BytesIO(user_download.content)).convert("RGB")
+        user_width, user_height = int(user_image.width), int(user_image.height)
+        output_width, output_height = _bucket_dimensions(
+            user_width,
+            user_height,
+            int(resolved_settings.tryon_dimension_multiple),
+        )
 
         product_inputs: list[ProductReferenceInput] = []
         downloaded_products: list[dict[str, str]] = []
@@ -89,7 +97,17 @@ def run_tryon_request(
         user_image.save(job_paths.person_path, format="JPEG", quality=95)
         product_reference.image.save(job_paths.garment_reference_path, format="JPEG", quality=95)
 
-        prompt_text = _build_tryon_prompt(payload)
+        routing_decision: TryonRoutingDecision | None = None
+        if resolved_settings.tryon_use_specialists:
+            routing_decision = resolve_tryon_route(payload.products, resolved_settings)
+            prompt_text = _build_specialist_prompt(
+                payload.products,
+                routing_decision,
+                resolved_settings,
+            )
+        else:
+            prompt_text = _build_tryon_prompt(payload)
+
         run_result = get_tryon_execution_coordinator(resolved_settings).run(
             lambda: get_tryon_runner(resolved_settings).run_tryon(
                 person_image_path=str(job_paths.person_path),
@@ -99,12 +117,19 @@ def run_tryon_request(
                 guidance_scale=resolved_guidance_scale,
                 seed=resolved_seed,
                 output_path=str(job_paths.output_path),
-                output_width=int(resolved_settings.tryon_output_width),
-                output_height=int(resolved_settings.tryon_output_height),
+                output_width=output_width,
+                output_height=output_height,
+                lora_key=routing_decision.lora_key if routing_decision else None,
             ),
         )
 
         output_image = run_result.image.convert("RGB")
+        if output_image.size != (user_width, user_height):
+            output_image = output_image.resize(
+                (user_width, user_height),
+                Image.Resampling.LANCZOS,
+            )
+            output_image.save(job_paths.output_path, format="JPEG", quality=95)
 
         storage_client = AzureStorageClient(resolved_settings)
         if not storage_client.is_configured:
@@ -159,6 +184,13 @@ def run_tryon_request(
                             "ctrl_img_2": "garment_reference",
                         },
                     },
+                    "routing": {
+                        "use_specialists": bool(resolved_settings.tryon_use_specialists),
+                        "lora_key": routing_decision.lora_key if routing_decision else None,
+                        "trigger_caption": (
+                            routing_decision.trigger_caption if routing_decision else None
+                        ),
+                    },
                     "runner": {
                         **run_result.metadata,
                         "wall_seconds": float(run_result.wall_seconds),
@@ -173,6 +205,8 @@ def run_tryon_request(
                     "output": {
                         "width": int(output_image.width),
                         "height": int(output_image.height),
+                        "inference_width": output_width,
+                        "inference_height": output_height,
                     },
                 },
             ),
@@ -249,6 +283,69 @@ def run_tryon_request(
     finally:
         if job_paths is not None:
             cleanup_directory(job_paths.job_dir)
+
+
+def _build_specialist_prompt(
+    products: list[TryonProduct],
+    routing: TryonRoutingDecision,
+    settings: Settings,
+) -> str:
+    sections = _build_specialist_product_sections(products, routing.lora_key)
+    parts = [f"{routing.trigger_caption.rstrip('.')}."]
+    if sections:
+        parts.append(sections)
+    parts.append(settings.tryon_prompt_identity_clause)
+    return " ".join(part for part in parts if part).strip()
+
+
+def _build_specialist_product_sections(
+    products: list[TryonProduct],
+    lora_key: str,
+) -> str:
+    if lora_key == "multi":
+        return _build_ordered_product_sections(products)
+    if len(products) != 1:
+        return ""
+    product = products[0]
+    description = _format_product_prompt(product.prompt)
+    if not description:
+        return ""
+    label = _category_label_for_lora(lora_key)
+    return f"{label}: {description}."
+
+
+def _category_label_for_lora(lora_key: str) -> str:
+    if lora_key == "top":
+        return "Top"
+    if lora_key == "bottom":
+        return "Bottom"
+    if lora_key == "dress":
+        return "Dress"
+    return "Garment"
+
+
+def _build_ordered_product_sections(products: list[TryonProduct]) -> str:
+    priority = {"top": 0, "outer": 0, "dress": 1, "bottom": 2}
+    ordered = sorted(
+        enumerate(products),
+        key=lambda item: (priority.get(item[1].type.value, 99), item[0]),
+    )
+    sections: list[str] = []
+    for _index, product in ordered:
+        description = _format_product_prompt(product.prompt)
+        if not description:
+            continue
+        label = "Top" if product.type.value == "outer" else product.type.value.capitalize()
+        sections.append(f"{label}: {description}.")
+    return " ".join(sections)
+
+
+def _bucket_dimensions(width: int, height: int, multiple: int) -> tuple[int, int]:
+    if multiple <= 1:
+        return int(width), int(height)
+    bucketed_w = max(multiple, int(round(width / multiple)) * multiple)
+    bucketed_h = max(multiple, int(round(height / multiple)) * multiple)
+    return bucketed_w, bucketed_h
 
 
 def _build_tryon_prompt(payload: TryonRequest) -> str:

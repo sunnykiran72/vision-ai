@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from app.config import Settings, get_settings, validate_startup_settings
 from app.runtime.tryon_runtime import warmup_tryon_runtime
 from app.runtime.upscale_runtime import warmup_upscale_runtime
+from app.runtime.wardrobe_runtime import warmup_wardrobe_runtime
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,9 @@ def warmup_resident_runtimes(settings: Settings | None = None) -> list[WarmupRes
     resolved_settings = settings or get_settings()
     validate_required_service_config(resolved_settings)
     results: list[WarmupResult] = []
+
+    warmup_wardrobe_runtime(resolved_settings)
+    results.append(WarmupResult(runtime_name="wardrobe", warmed=True))
 
     warmup_tryon_runtime(resolved_settings)
     results.append(WarmupResult(runtime_name="tryon", warmed=True))

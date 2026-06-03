@@ -1,21 +1,26 @@
-from typing import Annotated
+from fastapi import APIRouter, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
-from fastapi import APIRouter, File, Form, UploadFile
-
+from app.constants import http_status
 from app.dependencies.auth import CurrentAuth
-from app.models.wardrobe import WardrobeAnalyzeResponse
-from app.services.wardrobe import build_wardrobe_placeholder
+from app.models.wardrobe import WardrobeAnalyzeRequest, WardrobeAnalyzeResponse
+from app.services.wardrobe import run_wardrobe_request
 
 router = APIRouter()
 
 
-@router.post("/v1/wardrobe", response_model=WardrobeAnalyzeResponse)
+@router.post("/v1/wardrobe", response_model=WardrobeAnalyzeResponse, status_code=http_status.OK)
 async def wardrobe_analyze(
+    payload: WardrobeAnalyzeRequest,
+    request: Request,
+    response: Response,
     current_user: CurrentAuth,
-    file: Annotated[UploadFile | None, File()] = None,
-    image: Annotated[UploadFile | None, File()] = None,
-    garment_type: Annotated[str | None, Form(alias="type")] = None,
-    debug: Annotated[bool, Form()] = False,
 ) -> WardrobeAnalyzeResponse:
-    del current_user, file, image, garment_type, debug
-    return build_wardrobe_placeholder()
+    result = await run_in_threadpool(
+        run_wardrobe_request,
+        payload,
+        user_id=str(current_user.user_id),
+        bearer_token=request.headers.get("Authorization", ""),
+    )
+    response.status_code = result.status
+    return result

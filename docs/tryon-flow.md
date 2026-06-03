@@ -346,7 +346,8 @@ For try-on, required runtime configuration is validated up front, including:
 - `QWEN_IMAGE_EDIT_MODEL_PATH`
 - `TRYON_LORA_PATH`
 
-If warmup is enabled, the try-on runtime also loads the checkpoint during startup.
+Warmup always runs during startup, so the try-on runtime loads the checkpoint before serving
+requests.
 
 ## Current limitations
 

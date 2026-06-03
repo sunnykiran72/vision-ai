@@ -4,16 +4,58 @@ from pytest import MonkeyPatch
 from app.main import app
 from app.models.tryon import TryonResponse, TryonResponseData
 from app.models.upscale import UpscaleResponse, UpscaleResponseData
+from app.models.wardrobe import WardrobeAnalyzeResponse, WardrobeAnalyzeResult
 from app.routes import tryon as tryon_route
 from app.routes import upscale as upscale_route
+from app.routes import wardrobe as wardrobe_route
 
 client = TestClient(app)
 
 
 def test_wardrobe_route_exists(auth_header: dict[str, str]) -> None:
     response = client.post("/v1/wardrobe", headers=auth_header)
+    assert response.status_code == 422
+    assert response.json()["data"] is None
+
+
+def test_wardrobe_route_uses_structured_request(
+    monkeypatch: MonkeyPatch,
+    auth_header: dict[str, str],
+    auth_user_id: str,
+) -> None:
+    def fake_run_wardrobe_request(
+        payload,
+        *,
+        user_id: str,
+        bearer_token: str,
+    ) -> WardrobeAnalyzeResponse:
+        assert payload.type == "top"
+        assert user_id == auth_user_id
+        assert bearer_token.startswith("Bearer ")
+        return WardrobeAnalyzeResponse(
+            status=200,
+            message="",
+            data=WardrobeAnalyzeResult(
+                id="a9178f00-2d78-47c3-928d-80a28f6e082e",
+                type="top",
+                image="jpeg-base64",
+                category="t_shirts",
+                categoryLabel="T-shirt",
+            ),
+        )
+
+    monkeypatch.setattr(wardrobe_route, "run_wardrobe_request", fake_run_wardrobe_request)
+
+    response = client.post(
+        "/v1/wardrobe",
+        headers=auth_header,
+        json={"image": "base64", "type": "top"},
+    )
+
     assert response.status_code == 200
-    assert response.json()["feature"] == "wardrobe"
+    assert response.json()["data"]["category"] == "t_shirts"
+    assert response.json()["data"]["categoryLabel"] == "T-shirt"
+    assert response.json()["data"]["type"] == "top"
 
 
 def test_user_validation_route_exists(auth_header: dict[str, str]) -> None:

@@ -1,9 +1,12 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.constants import http_status
 from app.middleware.auth import authorization_middleware
 from app.router import router as api_router
 from app.runtime.warmup import (
@@ -20,8 +23,7 @@ def create_app() -> FastAPI:
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings = get_settings()
         validate_required_service_config(settings)
-        if settings.startup_warmup_enabled:
-            warmup_resident_runtimes(settings)
+        warmup_resident_runtimes(settings)
         yield
 
     app = FastAPI(
@@ -33,6 +35,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.middleware("http")(authorization_middleware)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        _request: Request,
+        _exc: RequestValidationError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=http_status.UNPROCESSABLE_CONTENT,
+            content={
+                "status": http_status.UNPROCESSABLE_CONTENT,
+                "message": "Invalid request.",
+                "data": None,
+            },
+        )
+
     app.include_router(api_router)
 
     return app

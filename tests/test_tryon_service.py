@@ -47,8 +47,9 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
             output_path: str,
             output_width: int,
             output_height: int,
+            lora_key: str | None = None,
         ) -> TryonRunResult:
-            del prompt, steps, guidance_scale, seed
+            del prompt, steps, guidance_scale, seed, lora_key
             assert Path(person_image_path).exists()
             assert Path(garment_reference_path).exists()
             output = Image.open(garment_reference_path).convert("RGB").resize(
@@ -127,7 +128,11 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     assert response.data.metadata["reference"]["control_order"]["ctrl_img_1"] == "person"
     assert response.data.metadata["reference"]["control_order"]["ctrl_img_2"] == "garment_reference"
     assert response.data.metadata["resolved_settings"]["seed"] == 43
-    assert response.data.metadata["output"]["width"] == 1024
+    assert response.data.metadata["output"]["width"] == 512
+    assert response.data.metadata["output"]["height"] == 768
+    assert response.data.metadata["output"]["inference_width"] == 512
+    assert response.data.metadata["output"]["inference_height"] == 768
+    assert response.data.metadata["routing"]["use_specialists"] is False
     assert not any(tmp_path.iterdir())
 
 
@@ -168,6 +173,113 @@ def test_build_tryon_prompt_preserves_duplicate_types_in_priority_order() -> Non
         "Top: white asymmetrical short sleeve top. "
         "Dress: navy pleated evening dress. "
         "Bottom: grey checked cropped pants. "
+        "Preserve the person's face, identity, body proportions, pose, and background."
+    )
+
+
+def test_specialist_prompt_uses_trigger_caption_and_product_detail() -> None:
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/top.png",
+                    "type": "top",
+                    "prompt": "red structured jacket with notched lapels",
+                },
+            ],
+        },
+    )
+    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    from app.services.tryon_routing import resolve_tryon_route
+
+    routing = resolve_tryon_route(payload.products, settings)
+    prompt = tryon_service._build_specialist_prompt(payload.products, routing, settings)
+
+    assert prompt == (
+        "Apply GlamifyTopTryon on this person. "
+        "Top: red structured jacket with notched lapels. "
+        "Preserve the person's face, identity, body proportions, pose, and background."
+    )
+
+
+def test_specialist_routing_outer_maps_to_top() -> None:
+    from app.services.tryon_routing import resolve_tryon_route
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/outer.png",
+                    "type": "outer",
+                    "prompt": "navy bomber jacket",
+                },
+            ],
+        },
+    )
+    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    routing = resolve_tryon_route(payload.products, settings)
+
+    assert routing.lora_key == "top"
+    assert routing.trigger_caption == "Apply GlamifyTopTryon on this person"
+
+
+def test_specialist_routing_multi_for_two_or_more_products() -> None:
+    from app.services.tryon_routing import resolve_tryon_route
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/top.png",
+                    "type": "top",
+                    "prompt": "white tee",
+                },
+                {
+                    "image_url": "https://example.com/bottom.png",
+                    "type": "bottom",
+                    "prompt": "blue jeans",
+                },
+            ],
+        },
+    )
+    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    routing = resolve_tryon_route(payload.products, settings)
+
+    assert routing.lora_key == "multi"
+    assert routing.trigger_caption == "Apply GlamifyMultiTryon on this person"
+
+
+def test_specialist_prompt_multi_lists_each_category() -> None:
+    from app.services.tryon_routing import resolve_tryon_route
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/bottom.png",
+                    "type": "bottom",
+                    "prompt": "black straight trousers",
+                },
+                {
+                    "image_url": "https://example.com/top.png",
+                    "type": "top",
+                    "prompt": "red structured jacket",
+                },
+            ],
+        },
+    )
+    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    routing = resolve_tryon_route(payload.products, settings)
+    prompt = tryon_service._build_specialist_prompt(payload.products, routing, settings)
+
+    assert prompt == (
+        "Apply GlamifyMultiTryon on this person. "
+        "Top: red structured jacket. "
+        "Bottom: black straight trousers. "
         "Preserve the person's face, identity, body proportions, pose, and background."
     )
 

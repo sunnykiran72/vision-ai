@@ -106,11 +106,13 @@ AZURE_WARDROBE_INPUT_CONTAINER=wardrobe-inputs
 AZURE_WARDROBE_OUTPUT_CONTAINER=wardrobe-outputs
 
 QWEN_IMAGE_EDIT_MODEL_PATH=/workspace/models/qwen-image-edit-2511
+QWEN_IMAGE_EDIT_DTYPE=bfloat16
 WARDROBE_LORA_TOP_PATH=/workspace/loras/wardrobe/top_23000.safetensors
 WARDROBE_LORA_BOTTOM_PATH=/workspace/loras/wardrobe/bottom_30000.safetensors
 WARDROBE_LORA_DRESS_PATH=/workspace/loras/wardrobe/dress_27000.safetensors
 MINICPM_MODEL_PATH=openbmb/MiniCPM-V-4_5
 MINICPM_DTYPE=bfloat16
+MINICPM_GPU_MEMORY_UTILIZATION=0.27
 MINICPM_KV_CACHE_DTYPE=fp8
 MINICPM_CALCULATE_KV_SCALES=true
 MINICPM_ATTENTION_BACKEND=TRITON_ATTN
@@ -159,10 +161,10 @@ curl -s -X POST http://localhost:8000/v1/wardrobe \
 
 ## 8. VRAM & dtype
 
-- Qwen: bf16 (faithful baseline). MiniCPM: bf16 weights with fp8 KV cache via vLLM, capped by the
-  `MINICPM_GPU_MEMORY_UTILIZATION = 0.27` code constant. SeedVR2: the fp8 mixed variant above plus
+- Qwen: bf16 (faithful baseline; `QWEN_IMAGE_EDIT_DTYPE=float8_e4m3fn` is experimental). MiniCPM: bf16 weights with fp8 KV cache via vLLM, capped by
+  `MINICPM_GPU_MEMORY_UTILIZATION` (default `0.27` for the all-resident 96 GB pod). SeedVR2: the fp8 mixed variant above plus
   `ema_vae_fp16.safetensors`.
-- Warm all three, then check `nvidia-smi`. If tight: lower the MiniCPM GPU utilization constant,
+- Warm all three, then check `nvidia-smi`. If tight: lower `MINICPM_GPU_MEMORY_UTILIZATION`,
   or drop SeedVR2 to its 3B fp8 variant via `UPSCALE_MODEL_VARIANT`.
 - On the RTX PRO 6000 Blackwell 96 GB pod, the measured resident set is 88,421 MiB used after a
   SeedVR2 tiny run, leaving 8,828 MiB free. On an 80 GB card this stack is not safe as a fully

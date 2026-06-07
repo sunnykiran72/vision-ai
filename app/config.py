@@ -36,6 +36,7 @@ class Settings(BaseSettings):
         default="/workspace/models/qwen-image-edit-2511",
         alias="QWEN_IMAGE_EDIT_MODEL_PATH",
     )
+    qwen_image_edit_dtype: str = Field(default="bfloat16", alias="QWEN_IMAGE_EDIT_DTYPE")
     ai_toolkit_root: str = Field(
         default="/workspace/ai-toolkit",
         alias="AI_TOOLKIT_ROOT",
@@ -44,14 +45,17 @@ class Settings(BaseSettings):
     wardrobe_lora_top_path: str = Field(default="", alias="WARDROBE_LORA_TOP_PATH")
     wardrobe_lora_bottom_path: str = Field(default="", alias="WARDROBE_LORA_BOTTOM_PATH")
     wardrobe_lora_dress_path: str = Field(default="", alias="WARDROBE_LORA_DRESS_PATH")
-    # MiniCPM-V garment captioner, loaded in-process via vLLM inside this service (no external
-    # service). Model pointer + dtype/KV-cache knobs are environment-specific; algorithmic tuning
-    # (tokens, slice nums, gpu util) lives in app/constants/wardrobe.py.
+    # MiniCPM-V garment captioner, loaded in-process via vLLM inside this service.
+    # Model, dtype, memory, and request-shape knobs are environment-specific.
     minicpm_model_path: str = Field(
         default="openbmb/MiniCPM-V-4_5",
         alias="MINICPM_MODEL_PATH",
     )
     minicpm_dtype: str = Field(default="bfloat16", alias="MINICPM_DTYPE")
+    minicpm_gpu_memory_utilization: float = Field(
+        default=0.27,
+        alias="MINICPM_GPU_MEMORY_UTILIZATION",
+    )
     minicpm_kv_cache_dtype: str = Field(default="fp8", alias="MINICPM_KV_CACHE_DTYPE")
     minicpm_calculate_kv_scales: bool = Field(
         default=True,
@@ -61,6 +65,10 @@ class Settings(BaseSettings):
         default="",
         alias="MINICPM_ATTENTION_BACKEND",
     )
+    minicpm_max_tokens: int = Field(default=100, alias="MINICPM_MAX_TOKENS")
+    minicpm_max_model_len: int = Field(default=2048, alias="MINICPM_MAX_MODEL_LEN")
+    minicpm_max_slice_nums: int = Field(default=4, alias="MINICPM_MAX_SLICE_NUMS")
+    minicpm_resize_long_px: int = Field(default=1024, alias="MINICPM_RESIZE_LONG_PX")
     # Separate private Azure containers for wardrobe input and output images.
     azure_wardrobe_input_container: str = Field(
         default="wardrobe-inputs",

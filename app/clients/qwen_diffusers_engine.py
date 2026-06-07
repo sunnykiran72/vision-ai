@@ -256,8 +256,12 @@ class QwenDiffusersWardrobeEngine:
             ) from exc
 
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if self._device == "cuda" else torch.float32
-        self._dtype_name = "bfloat16" if self._device == "cuda" else "float32"
+        dtype = _resolve_torch_dtype(
+            torch_module=torch,
+            requested=self._settings.qwen_image_edit_dtype,
+            device=self._device,
+        )
+        self._dtype_name = str(dtype).replace("torch.", "")
 
         pipeline = QwenImageEditPlusPipeline.from_pretrained(
             str(self._model_path),
@@ -303,3 +307,32 @@ class QwenDiffusersWardrobeEngine:
         self._pipeline.load_lora_weights(remapped, adapter_name=category)
         self._loaded_loras.add(category)
         logger.info("Loaded wardrobe extraction LoRA '%s' from %s", category, path)
+
+
+def _resolve_torch_dtype(*, torch_module: Any, requested: str, device: str) -> Any:
+    if device != "cuda":
+        return torch_module.float32
+    normalized = str(requested or "bfloat16").strip().lower()
+    aliases = {
+        "bf16": "bfloat16",
+        "bfloat16": "bfloat16",
+        "fp16": "float16",
+        "float16": "float16",
+        "half": "float16",
+        "fp8": "float8_e4m3fn",
+        "float8": "float8_e4m3fn",
+        "float8_e4m3fn": "float8_e4m3fn",
+        "fp32": "float32",
+        "float32": "float32",
+    }
+    dtype_name = aliases.get(normalized)
+    if dtype_name is None:
+        supported = ", ".join(sorted(set(aliases)))
+        raise WardrobeDiffusersRuntimeError(
+            f"Unsupported QWEN_IMAGE_EDIT_DTYPE '{requested}'. Supported values: {supported}.",
+        )
+    if dtype_name == "float8_e4m3fn" and not hasattr(torch_module, "float8_e4m3fn"):
+        raise WardrobeDiffusersRuntimeError(
+            "QWEN_IMAGE_EDIT_DTYPE=float8_e4m3fn requires a PyTorch build with float8_e4m3fn.",
+        )
+    return getattr(torch_module, dtype_name)

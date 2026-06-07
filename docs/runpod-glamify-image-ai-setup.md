@@ -117,6 +117,7 @@ MiniCPM is loaded in-process through vLLM. The production defaults are:
 ```bash
 MINICPM_MODEL_PATH=openbmb/MiniCPM-V-4_5
 MINICPM_DTYPE=bfloat16
+MINICPM_GPU_MEMORY_UTILIZATION=0.27
 MINICPM_KV_CACHE_DTYPE=fp8
 MINICPM_CALCULATE_KV_SCALES=true
 MINICPM_ATTENTION_BACKEND=TRITON_ATTN
@@ -188,8 +189,9 @@ vLLM `0.22.1`, Qwen bf16, MiniCPM bf16 weights + fp8 KV cache, and SeedVR2 7B fp
 | SeedVR2 tiny run | 88,421 MiB | 8,828 MiB |
 
 This measurement does not include wardrobe LoRAs because `/workspace/loras/wardrobe` is still empty.
-It does include MiniCPM's `MINICPM_GPU_MEMORY_UTILIZATION = 0.27` code cap. That cap should not be
-removed for the all-resident pod, because otherwise vLLM can reserve more of the remaining VRAM.
+For the all-resident pod, keep `MINICPM_GPU_MEMORY_UTILIZATION` explicit. `0.10` and `0.20` are too
+low for MiniCPM weights plus KV cache in the full resident stack. Use `0.27` as the current working
+default, clear stale vLLM workers before warmup, and verify with `nvidia-smi` after warmup.
 - Stage wardrobe LoRAs into `/workspace/loras/wardrobe`.
 - Fill `.env` with Azure, JWT, Glamify backend URL, and selected resident runtimes.
 - Start the service with the RunPod launch script:

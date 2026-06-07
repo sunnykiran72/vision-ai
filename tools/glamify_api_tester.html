@@ -65,6 +65,17 @@
       border-radius: 8px;
       padding: 16px;
     }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .panel-header h2,
+    .panel-header h3 {
+      margin: 0;
+    }
     .stack { display: grid; gap: 12px; }
     label {
       display: grid;
@@ -109,6 +120,14 @@
       background: var(--panel-2);
       border-color: var(--line);
       color: var(--text);
+    }
+    button.mini {
+      padding: 5px 8px;
+      border-color: var(--line);
+      background: #14171b;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
     }
     button:disabled {
       cursor: not-allowed;
@@ -165,6 +184,52 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 14px;
+    }
+    .metadata-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .summary-item {
+      background: #0f1114;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      min-height: 66px;
+    }
+    .summary-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .summary-item strong {
+      display: block;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+    }
+    .metadata-box {
+      background: #0f1114;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-width: 0;
+    }
+    .metadata-box h3 {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
     }
     .image-box {
       min-height: 420px;
@@ -234,6 +299,13 @@
       font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color: #dbe4ee;
     }
+    pre.compact {
+      min-height: 120px;
+      max-height: 260px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+    }
     .hint {
       padding: 10px 12px;
       border: 1px solid #3f3b24;
@@ -253,7 +325,7 @@
       width: auto;
     }
     @media (max-width: 920px) {
-      .grid, .preview-grid, .metrics { grid-template-columns: 1fr; }
+      .grid, .preview-grid, .metrics, .metadata-grid, .summary-grid { grid-template-columns: 1fr; }
       .topbar { align-items: flex-start; flex-direction: column; }
     }
   </style>
@@ -347,6 +419,15 @@
         <div class="metric"><span>Output</span><strong id="outputMetric">-</strong></div>
       </div>
 
+      <div class="summary-grid">
+        <div class="summary-item"><span>Qwen dtype</span><strong id="summaryQwenDtype">-</strong></div>
+        <div class="summary-item"><span>Qwen</span><strong id="summaryQwenTime">-</strong></div>
+        <div class="summary-item"><span>MiniCPM</span><strong id="summaryMiniCpmTime">-</strong></div>
+        <div class="summary-item"><span>Uploads</span><strong id="summaryUploadTime">-</strong></div>
+        <div class="summary-item"><span>Wardrobe</span><strong id="summaryWardrobeState">-</strong></div>
+        <div class="summary-item"><span>Upscale</span><strong id="summaryUpscaleState">-</strong></div>
+      </div>
+
       <div class="preview-grid">
         <div class="image-box">
           <header>
@@ -363,10 +444,44 @@
           <div class="image-frame" id="outputFrame"><p>No output yet</p></div>
         </div>
       </div>
+
+      <div class="metadata-grid">
+        <div class="metadata-box">
+          <div class="panel-header">
+            <h3>Prompt Details</h3>
+            <button class="mini" type="button" data-copy-target="metadataPrompt">Copy</button>
+          </div>
+          <pre id="metadataPrompt" class="compact">-</pre>
+        </div>
+        <div class="metadata-box">
+          <div class="panel-header">
+            <h3>Timings</h3>
+            <button class="mini" type="button" data-copy-target="metadataTimings">Copy</button>
+          </div>
+          <pre id="metadataTimings" class="compact">-</pre>
+        </div>
+        <div class="metadata-box">
+          <div class="panel-header">
+            <h3>Runtime / Classification</h3>
+            <button class="mini" type="button" data-copy-target="metadataRuntime">Copy</button>
+          </div>
+          <pre id="metadataRuntime" class="compact">-</pre>
+        </div>
+        <div class="metadata-box">
+          <div class="panel-header">
+            <h3>Progress Payload</h3>
+            <button class="mini" type="button" data-copy-target="metadataProgress">Copy</button>
+          </div>
+          <pre id="metadataProgress" class="compact">-</pre>
+        </div>
+      </div>
     </section>
 
     <section class="panel stack" style="margin-top:16px">
-      <h2>Response</h2>
+      <div class="panel-header">
+        <h2>Response</h2>
+        <button class="mini" type="button" data-copy-target="responseBox">Copy</button>
+      </div>
       <pre id="responseBox">{}</pre>
     </section>
   </main>
@@ -395,11 +510,21 @@
       latencyMetric: document.getElementById("latencyMetric"),
       featureLatencyMetric: document.getElementById("featureLatencyMetric"),
       outputMetric: document.getElementById("outputMetric"),
+      summaryQwenDtype: document.getElementById("summaryQwenDtype"),
+      summaryQwenTime: document.getElementById("summaryQwenTime"),
+      summaryMiniCpmTime: document.getElementById("summaryMiniCpmTime"),
+      summaryUploadTime: document.getElementById("summaryUploadTime"),
+      summaryWardrobeState: document.getElementById("summaryWardrobeState"),
+      summaryUpscaleState: document.getElementById("summaryUpscaleState"),
       inputFrame: document.getElementById("inputFrame"),
       inputInfo: document.getElementById("inputInfo"),
       outputFrame: document.getElementById("outputFrame"),
       outputLink: document.getElementById("outputLink"),
       responseBox: document.getElementById("responseBox"),
+      metadataPrompt: document.getElementById("metadataPrompt"),
+      metadataTimings: document.getElementById("metadataTimings"),
+      metadataRuntime: document.getElementById("metadataRuntime"),
+      metadataProgress: document.getElementById("metadataProgress"),
     };
 
     let lastWardrobeOutputUrl = "";
@@ -448,10 +573,95 @@
       els.outputLink.classList.add("hidden");
       els.outputLink.removeAttribute("href");
       els.responseBox.textContent = "{}";
+      els.metadataPrompt.textContent = "-";
+      els.metadataTimings.textContent = "-";
+      els.metadataRuntime.textContent = "-";
+      els.metadataProgress.textContent = "-";
+      renderSummary(null);
     }
 
     function renderJson(value) {
       els.responseBox.textContent = JSON.stringify(value, null, 2);
+      renderMetadata(value);
+    }
+
+    function formatSeconds(value) {
+      if (value == null || value === "") return "-";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return `${value}`;
+      return `${number.toFixed(2)}s`;
+    }
+
+    function renderSummary(body) {
+      const metadata = body?.data?.metadata;
+      const runtimes = metadata?.runtimes || body?.metadata?.runtimes || body?.data?.metadata?.runtimes;
+      const runtime = metadata?.runtime || {};
+      const timings = metadata?.timings || {};
+      const uploads = metadata?.uploads || {};
+      const uploadTotal = [
+        timings.input_upload_wait_seconds,
+        timings.output_upload_wait_seconds,
+        timings.upload_seconds,
+      ].filter((value) => value != null).reduce((sum, value) => sum + Number(value || 0), 0);
+
+      els.summaryQwenDtype.textContent = runtime.qwen_dtype || runtime.dtype || "-";
+      els.summaryQwenTime.textContent = formatSeconds(timings.qwen_generation_seconds);
+      els.summaryMiniCpmTime.textContent = formatSeconds(timings.minicpm_caption_seconds);
+      els.summaryUploadTime.textContent = uploadTotal > 0
+        ? formatSeconds(uploadTotal)
+        : [
+            uploads.input?.wall_seconds != null ? `in ${formatSeconds(uploads.input.wall_seconds)}` : "",
+            uploads.output?.wall_seconds != null ? `out ${formatSeconds(uploads.output.wall_seconds)}` : "",
+          ].filter(Boolean).join(" / ") || "-";
+      els.summaryWardrobeState.textContent = formatRuntimeState(runtimes?.wardrobe);
+      els.summaryUpscaleState.textContent = formatRuntimeState(runtimes?.upscale);
+    }
+
+    function formatRuntimeState(runtime) {
+      const loaded = runtime?.loaded ?? runtime?.runner?.loaded;
+      const backend = runtime?.backend ?? runtime?.runner?.backend;
+      if (loaded == null) return "-";
+      return backend
+        ? `${loaded ? "loaded" : "not loaded"} / ${backend}`
+        : loaded ? "loaded" : "not loaded";
+    }
+
+    function renderMetadata(body) {
+      renderSummary(body);
+      const metadata = body?.data?.metadata;
+      if (!metadata) {
+        els.metadataPrompt.textContent = "-";
+        els.metadataTimings.textContent = "-";
+        els.metadataRuntime.textContent = "-";
+        els.metadataProgress.textContent = "-";
+        return;
+      }
+      els.metadataPrompt.textContent = JSON.stringify({
+        promptDescription: metadata.promptDescription,
+        minicpm_prompt: metadata.minicpm_prompt,
+        prompt: metadata.prompt,
+        requested_type: metadata.requested_type,
+      }, null, 2);
+      els.metadataTimings.textContent = JSON.stringify(metadata.timings || {}, null, 2);
+      els.metadataRuntime.textContent = JSON.stringify({
+        runtime: metadata.runtime,
+        classification: metadata.classification,
+        marqo: metadata.marqo,
+        uploads: metadata.uploads,
+        sizes: metadata.sizes,
+      }, null, 2);
+      els.metadataProgress.textContent = JSON.stringify(metadata.progress?.payload || {}, null, 2);
+    }
+
+    async function copyPre(targetId, button) {
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      await navigator.clipboard.writeText(target.textContent || "");
+      const original = button.textContent;
+      button.textContent = "Copied";
+      window.setTimeout(() => {
+        button.textContent = original;
+      }, 900);
     }
 
     function renderOutput(url) {
@@ -540,7 +750,10 @@
     function applyMetrics(response, body, elapsed) {
       els.httpMetric.textContent = `${response.status}`;
       els.latencyMetric.textContent = `${(elapsed / 1000).toFixed(2)}s`;
-      const wall = body?.data?.metadata?.timings?.wall_seconds
+      const timings = body?.data?.metadata?.timings || {};
+      const wall = timings.total_wall_seconds
+        ?? timings.qwen_generation_seconds
+        ?? body?.data?.metadata?.timings?.wall_seconds
         ?? body?.data?.metadata?.runner?.wall_seconds
         ?? body?.data?.metadata?.latency_ms;
       els.featureLatencyMetric.textContent = wall == null
@@ -701,6 +914,9 @@
         els.upscaleUrl.value = lastWardrobeOutputUrl;
         els.upscaleUrl.dispatchEvent(new Event("input"));
       }
+    });
+    document.querySelectorAll("[data-copy-target]").forEach((button) => {
+      button.addEventListener("click", () => copyPre(button.dataset.copyTarget, button));
     });
     ["apiBase", "jwtUserId", "wardrobeType", "upscaleMetric"].forEach((id) => {
       els[id].addEventListener("change", saveSettings);

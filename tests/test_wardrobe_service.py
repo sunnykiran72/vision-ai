@@ -9,6 +9,7 @@ from typing import TypeVar
 from PIL import Image
 from pytest import MonkeyPatch
 
+from app.clients.glamify_progress import TimedUploadResult
 from app.clients.marqo_fashion import MarqoClassificationResult
 from app.config import Settings
 from app.constants import wardrobe as wardrobe_constants
@@ -41,6 +42,10 @@ class FakeProgressClient:
         self.uploads: list[dict[str, object]] = []
         self.progress: list[dict[str, object]] = []
 
+    @property
+    def is_configured(self) -> bool:
+        return True
+
     def upload_background(
         self,
         *,
@@ -52,6 +57,27 @@ class FakeProgressClient:
         self.uploads.append({"object_name": object_name, "container": container})
         future: Future[str] = Future()
         future.set_result(f"https://blob.example.com/{container}/{object_name}")
+        return future
+
+    def upload_background_timed(
+        self,
+        *,
+        content: bytes,
+        object_name: str,
+        container: str,
+        content_type: str,
+    ) -> Future[TimedUploadResult]:
+        self.uploads.append({"object_name": object_name, "container": container})
+        future: Future[TimedUploadResult] = Future()
+        future.set_result(
+            TimedUploadResult(
+                url=f"https://blob.example.com/{container}/{object_name}",
+                wall_seconds=0.123,
+                container=container,
+                object_name=object_name,
+                bytes=len(content),
+            ),
+        )
         return future
 
     def submit_progress_background(self, **kwargs: object) -> None:
@@ -105,7 +131,11 @@ def _output_runner(calls: dict[str, object] | None = None) -> object:
                 (wardrobe_constants.OUTPUT_WIDTH, wardrobe_constants.OUTPUT_HEIGHT),
                 (20, 30, 40),
             )
-            return WardrobeRunResult(image=output, metadata={}, wall_seconds=1.2)
+            return WardrobeRunResult(
+                image=output,
+                metadata={"dtype": "bfloat16", "seed": wardrobe_constants.GENERATION_SEED},
+                wall_seconds=1.2,
+            )
 
     return FakeRunner()
 
@@ -152,13 +182,24 @@ def test_run_wardrobe_request_success(monkeypatch: MonkeyPatch) -> None:
     assert response.data is not None
     job_id = response.data.id
     output_object = f"user-123/{job_id}/output.jpg"
-    assert response.data.type == "bottom"
-    assert response.data.category == "trousers"
-    assert response.data.image == f"https://blob.example.com/wardrobe-outputs/{output_object}"
-    assert calls["detector_size"] == (1024, 768)
     expected_prompt = wardrobe_constants.QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE["bottom"].format(
         caption=CAPTION,
     )
+    assert response.data.type == "bottom"
+    assert response.data.category == "trousers"
+    assert response.data.image == f"https://blob.example.com/wardrobe-outputs/{output_object}"
+    assert response.data.metadata["promptDescription"] == CAPTION
+    assert response.data.metadata["prompt"] == expected_prompt
+    assert response.data.metadata["runtime"]["dtype"] == "bfloat16"
+    assert response.data.metadata["timings"]["qwen_generation_seconds"] == 1.2
+    assert response.data.metadata["uploads"]["input"]["wall_seconds"] == 0.123
+    assert response.data.metadata["uploads"]["output"]["container"] == "wardrobe-outputs"
+    assert response.data.metadata["progress"]["payload"]["promptDescription"] == CAPTION
+    assert (
+        response.data.metadata["progress"]["payload"]["metadata"]["classification"]["category"]
+        == "trousers"
+    )
+    assert calls["detector_size"] == (1024, 768)
     assert calls["prompt"] == expected_prompt
     assert calls["marqo_size"] == (
         wardrobe_constants.OUTPUT_WIDTH,

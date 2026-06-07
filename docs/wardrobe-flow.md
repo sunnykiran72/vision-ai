@@ -137,7 +137,7 @@ MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 
 | Concern | Value |
 | --- | --- |
-| GPU memory utilization | `0.27` (`MINICPM_GPU_MEMORY_UTILIZATION`) |
+| GPU memory utilization | `0.27` default (`MINICPM_GPU_MEMORY_UTILIZATION`) |
 | Max tokens | `90` (`MINICPM_MAX_TOKENS`) |
 | Max slice nums | `4` (`MINICPM_MAX_SLICE_NUMS`) |
 | Max model len | `4096` (`MINICPM_MAX_MODEL_LEN`) |
@@ -149,6 +149,10 @@ MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. The legacy
 `GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
 the file for the AI-Toolkit try-on path and are not used by wardrobe.
+
+Qwen diffusers dtype is controlled by `QWEN_IMAGE_EDIT_DTYPE`. Use `bfloat16` for the production
+baseline. `float8_e4m3fn` is available only as an experimental comparison path and should be judged
+by actual image output before production use.
 
 Static prompts (all in `app/constants/wardrobe.py`):
 
@@ -313,8 +317,8 @@ Client:
 MiniCPM-V is loaded **in-process via vLLM inside this service** — there is no external model
 server or separate port. It is a faithful port of the validated reference engine: vLLM loads the
 model in this process and coexists on one GPU beside the resident Qwen model, capped via
-`MINICPM_GPU_MEMORY_UTILIZATION`, running `enforce_eager=True` and `max_num_seqs=1`. Only the
-model pointer is environment-specific (`MINICPM_MODEL_PATH`); all tuning is in
+`MINICPM_GPU_MEMORY_UTILIZATION`, running `enforce_eager=True` and `max_num_seqs=1`. The model
+pointer, dtype, KV cache dtype, and memory cap are environment-specific; algorithmic tuning is in
 `app/constants/wardrobe.py`.
 
 After the detector gate, the preprocessed image and the per-type `MINICPM_PROMPT_BY_TYPE[type]`

@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniCPM AWQ Tester</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --panel: #181b1f;
+      --panel-2: #20252b;
+      --line: #333941;
+      --text: #eef1f4;
+      --muted: #9da7b2;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+      --focus: #c4b5fd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(1220px, calc(100vw - 32px));
+      margin: 24px auto 48px;
+    }
+    h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: 0; }
+    h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0; color: var(--muted); }
+    .topbar, .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .topbar { align-items: flex-end; margin-bottom: 18px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stack { display: grid; gap: 12px; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #0f1114;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 10px 11px;
+      outline: none;
+    }
+    textarea {
+      min-height: 150px;
+      resize: vertical;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgb(196 181 253 / 18%);
+    }
+    button {
+      border: 1px solid #655bd9;
+      background: #6d5df7;
+      color: #fff;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: var(--panel-2);
+      border-color: var(--line);
+      color: var(--text);
+    }
+    button.mini {
+      padding: 5px 8px;
+      border-color: var(--line);
+      background: #14171b;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .ok .dot { background: var(--ok); }
+    .warn .dot { background: var(--warn); }
+    .bad .dot { background: var(--bad); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric, .result {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-width: 0;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+    .results { display: grid; gap: 12px; }
+    .result-grid {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 6px;
+      background: #0b0d10;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f1114;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      max-height: 420px;
+      overflow: auto;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dbe4ee;
+    }
+    @media (max-width: 920px) {
+      .grid, .row, .metrics, .result-grid { grid-template-columns: 1fr; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topbar">
+      <div>
+        <h1>MiniCPM AWQ Tester</h1>
+        <p>Direct caption testing for openbmb/MiniCPM-V-4_5-AWQ.</p>
+      </div>
+      <div id="status" class="status"><span class="dot"></span><span>Idle</span></div>
+    </div>
+
+    <div class="grid">
+      <section class="panel stack">
+        <h2>Input</h2>
+        <label>
+          AWQ API base URL
+          <input id="apiBase" value="http://127.0.0.1:8020">
+        </label>
+        <div class="row">
+          <label>
+            Garment type
+            <select id="garmentType">
+              <option value="top">top</option>
+              <option value="bottom">bottom</option>
+              <option value="dress">dress</option>
+            </select>
+          </label>
+          <label>
+            Images
+            <input id="images" type="file" accept="image/*" multiple>
+          </label>
+        </div>
+        <label>
+          Prompt override
+          <textarea id="prompt" spellcheck="false" placeholder="Blank uses the built-in prompt for the selected type"></textarea>
+        </label>
+        <button id="runBtn" type="button">Run Selected Images</button>
+        <button id="loadBtn" class="secondary" type="button">Load / Warm AWQ</button>
+        <button id="statusBtn" class="secondary" type="button">Refresh Config</button>
+      </section>
+
+      <section class="panel stack">
+        <div class="metrics">
+          <div class="metric"><span>HTTP</span><strong id="httpMetric">-</strong></div>
+          <div class="metric"><span>Wall</span><strong id="wallMetric">-</strong></div>
+          <div class="metric"><span>Model</span><strong id="modelMetric">-</strong></div>
+          <div class="metric"><span>Words</span><strong id="wordsMetric">-</strong></div>
+        </div>
+        <div class="panel-header">
+          <h2>AWQ Config</h2>
+          <button class="mini" type="button" data-copy="configBox">Copy</button>
+        </div>
+        <pre id="configBox">{}</pre>
+      </section>
+    </div>
+
+    <section class="panel stack" style="margin-top:16px">
+      <div class="panel-header">
+        <h2>Results</h2>
+        <button class="mini" type="button" data-copy="rawBox">Copy Raw</button>
+      </div>
+      <div id="results" class="results"></div>
+      <pre id="rawBox">[]</pre>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      apiBase: document.getElementById("apiBase"),
+      garmentType: document.getElementById("garmentType"),
+      images: document.getElementById("images"),
+      prompt: document.getElementById("prompt"),
+      runBtn: document.getElementById("runBtn"),
+      loadBtn: document.getElementById("loadBtn"),
+      statusBtn: document.getElementById("statusBtn"),
+      status: document.getElementById("status"),
+      httpMetric: document.getElementById("httpMetric"),
+      wallMetric: document.getElementById("wallMetric"),
+      modelMetric: document.getElementById("modelMetric"),
+      wordsMetric: document.getElementById("wordsMetric"),
+      configBox: document.getElementById("configBox"),
+      results: document.getElementById("results"),
+      rawBox: document.getElementById("rawBox"),
+    };
+    const allResults = [];
+
+    function setStatus(kind, text) {
+      els.status.className = `status ${kind || ""}`.trim();
+      els.status.querySelector("span:last-child").textContent = text;
+    }
+
+    function cleanBase() {
+      return els.apiBase.value.trim().replace(/\/+$/, "");
+    }
+
+    function proxyUrl(path) {
+      const target = `${cleanBase()}${path}`;
+      return `/proxy?url=${encodeURIComponent(target)}`;
+    }
+
+    async function parseResponse(response) {
+      const text = await response.text();
+      try { return JSON.parse(text); } catch { return { raw: text }; }
+    }
+
+    async function refreshStatus() {
+      setStatus("warn", "Checking AWQ");
+      const started = performance.now();
+      try {
+        const response = await fetch(proxyUrl("/api/status"));
+        const body = await parseResponse(response);
+        els.httpMetric.textContent = `${response.status}`;
+        els.wallMetric.textContent = `${((performance.now() - started) / 1000).toFixed(2)}s`;
+        els.modelMetric.textContent = body?.config?.model_path ? "AWQ" : "-";
+        els.wordsMetric.textContent = "-";
+        els.configBox.textContent = JSON.stringify(body, null, 2);
+        setStatus(response.ok ? "ok" : "bad", body.ready ? "AWQ ready" : "AWQ not loaded");
+      } catch (error) {
+        els.configBox.textContent = JSON.stringify({ error: error.message }, null, 2);
+        setStatus("bad", "AWQ status failed");
+      }
+    }
+
+    async function loadAwq() {
+      setBusy(true);
+      setStatus("warn", "Loading AWQ");
+      const started = performance.now();
+      try {
+        const response = await fetch(proxyUrl("/api/load"), { method: "POST" });
+        const body = await parseResponse(response);
+        els.httpMetric.textContent = `${response.status}`;
+        els.wallMetric.textContent = `${((performance.now() - started) / 1000).toFixed(2)}s`;
+        els.configBox.textContent = JSON.stringify(body, null, 2);
+        setStatus(response.ok ? "ok" : "bad", response.ok ? "AWQ ready" : "AWQ load failed");
+      } catch (error) {
+        els.configBox.textContent = JSON.stringify({ error: error.message }, null, 2);
+        setStatus("bad", "AWQ load failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function setBusy(busy) {
+      els.runBtn.disabled = busy;
+      els.loadBtn.disabled = busy;
+      els.statusBtn.disabled = busy;
+    }
+
+    async function runImages() {
+      const files = Array.from(els.images.files || []);
+      if (!files.length) {
+        setStatus("bad", "Choose images");
+        return;
+      }
+      setBusy(true);
+      els.results.innerHTML = "";
+      allResults.length = 0;
+      for (const file of files) {
+        setStatus("warn", `Running ${file.name}`);
+        const form = new FormData();
+        form.append("source", file, file.name || "garment.jpg");
+        form.append("type", els.garmentType.value);
+        const prompt = els.prompt.value.trim();
+        if (prompt) form.append("prompt", prompt);
+        const started = performance.now();
+        try {
+          const response = await fetch(proxyUrl("/api/caption"), { method: "POST", body: form });
+          const body = await parseResponse(response);
+          const wallSeconds = (performance.now() - started) / 1000;
+          const result = {
+            file: file.name,
+            http: response.status,
+            wall_seconds: Number(wallSeconds.toFixed(3)),
+            response: body,
+          };
+          allResults.push(result);
+          renderResult(file, result);
+          els.httpMetric.textContent = `${response.status}`;
+          els.wallMetric.textContent = `${wallSeconds.toFixed(2)}s`;
+          els.modelMetric.textContent = body.ms == null ? "-" : `${(body.ms / 1000).toFixed(2)}s`;
+          els.wordsMetric.textContent = body.words == null ? "-" : `${body.words}`;
+          setStatus(response.ok ? "ok" : "bad", response.ok ? "Caption complete" : "Caption failed");
+        } catch (error) {
+          const result = { file: file.name, error: error.message };
+          allResults.push(result);
+          renderResult(file, result);
+          setStatus("bad", "Caption failed");
+        }
+        els.rawBox.textContent = JSON.stringify(allResults, null, 2);
+      }
+      setBusy(false);
+    }
+
+    function renderResult(file, result) {
+      const card = document.createElement("div");
+      card.className = "result";
+      const grid = document.createElement("div");
+      grid.className = "result-grid";
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(file);
+      img.alt = file.name;
+      const detail = document.createElement("div");
+      const response = result.response || {};
+      detail.innerHTML = `
+        <div class="panel-header">
+          <h2>${escapeHtml(file.name)}</h2>
+          <span>${response.ms == null ? "" : `${response.ms} ms | ${response.words} words`}</span>
+        </div>
+        <p>${escapeHtml(response.caption || result.error || "")}</p>
+      `;
+      grid.append(img, detail);
+      card.appendChild(grid);
+      els.results.appendChild(card);
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;",
+      }[char]));
+    }
+
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const target = document.getElementById(button.dataset.copy);
+        await navigator.clipboard.writeText(target?.textContent || "");
+        const old = button.textContent;
+        button.textContent = "Copied";
+        setTimeout(() => { button.textContent = old; }, 900);
+      });
+    });
+
+    els.statusBtn.addEventListener("click", refreshStatus);
+    els.loadBtn.addEventListener("click", loadAwq);
+    els.runBtn.addEventListener("click", runImages);
+    refreshStatus();
+  </script>
+</body>
+</html>

@@ -21,10 +21,8 @@ GLAMIFY_API_TIMEOUT_SECONDS = 20
 AZURE_UPLOAD_TIMEOUT_SECONDS = 60
 
 # MiniCPM-V garment captioner, loaded in-process via vLLM. These mirror the validated reference
-# config and coexist on one GPU beside the resident Qwen model, so vLLM is capped via
-# MINICPM_GPU_MEMORY_UTILIZATION and runs eager + single-sequence. The model pointer is the only
-# environment-specific value (MINICPM_MODEL_PATH).
-MINICPM_GPU_MEMORY_UTILIZATION = 0.27
+# config and coexist on one GPU beside the resident Qwen model. Memory budgeting is environment
+# specific and lives in Settings as MINICPM_GPU_MEMORY_UTILIZATION.
 MINICPM_MAX_TOKENS = 90
 MINICPM_MAX_SLICE_NUMS = 4
 MINICPM_MAX_MODEL_LEN = 4096

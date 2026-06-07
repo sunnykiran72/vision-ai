@@ -46,8 +46,8 @@ class MiniCPMVllmClient:
 
     A faithful port of the validated reference engine: vLLM loads the model in this process and
     coexists on the GPU beside the resident Qwen model (capped via gpu_memory_utilization, eager,
-    single-sequence). All tuning is in ``app/constants/wardrobe.py``; only the model pointer is an
-    environment value.
+    single-sequence). Algorithmic tuning is in ``app/constants/wardrobe.py``; deployment-specific
+    model and memory settings come from ``Settings``.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -79,7 +79,10 @@ class MiniCPMVllmClient:
         if self._llm is None or self._tokenizer is None or self._sampling_params is None:
             raise MiniCPMRuntimeError("MiniCPM vLLM runtime is not loaded.")
 
-        rgb = _resize_long(image.convert("RGB"))
+        rgb = _resize_long(
+            image.convert("RGB"),
+            target=self._settings.minicpm_resize_long_px,
+        )
         messages = [{"role": "user", "content": "(<image>./</image>)\n" + str(prompt).strip()}]
         started = time.perf_counter()
         try:
@@ -137,14 +140,14 @@ class MiniCPMVllmClient:
         llm_kwargs: dict[str, Any] = {
             "model": self._model,
             "trust_remote_code": True,
-            "gpu_memory_utilization": wardrobe_constants.MINICPM_GPU_MEMORY_UTILIZATION,
-            "max_model_len": wardrobe_constants.MINICPM_MAX_MODEL_LEN,
+            "gpu_memory_utilization": self._settings.minicpm_gpu_memory_utilization,
+            "max_model_len": self._settings.minicpm_max_model_len,
             "limit_mm_per_prompt": {"image": 1},
             "dtype": self._settings.minicpm_dtype,
             "enforce_eager": True,
             "max_num_seqs": 1,
             "mm_processor_kwargs": {
-                "max_slice_nums": wardrobe_constants.MINICPM_MAX_SLICE_NUMS,
+                "max_slice_nums": self._settings.minicpm_max_slice_nums,
             },
         }
         if self._settings.minicpm_kv_cache_dtype:
@@ -166,7 +169,7 @@ class MiniCPMVllmClient:
             stop_ids = None
         self._sampling_params = SamplingParams(
             temperature=wardrobe_constants.MINICPM_TEMPERATURE,
-            max_tokens=wardrobe_constants.MINICPM_MAX_TOKENS,
+            max_tokens=self._settings.minicpm_max_tokens,
             stop_token_ids=stop_ids,
         )
         self._tokenizer = tokenizer

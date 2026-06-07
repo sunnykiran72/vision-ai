@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -14,6 +16,15 @@ logger = logging.getLogger("glamify-ai")
 
 _UPLOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wardrobe-upload")
 _SYNC_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wardrobe-sync")
+
+
+@dataclass(frozen=True)
+class TimedUploadResult:
+    url: str
+    wall_seconds: float
+    container: str
+    object_name: str
+    bytes: int
 
 
 class GlamifyProgressClient:
@@ -41,12 +52,29 @@ class GlamifyProgressClient:
             content_type=content_type,
         )
 
+    def upload_background_timed(
+        self,
+        *,
+        content: bytes,
+        object_name: str,
+        container: str,
+        content_type: str,
+    ) -> Future[TimedUploadResult]:
+        """Upload bytes off the request path and retain upload duration for debug metadata."""
+        return _UPLOAD_EXECUTOR.submit(
+            self._upload_bytes_timed,
+            content=content,
+            object_name=object_name,
+            container=container,
+            content_type=content_type,
+        )
+
     def submit_progress_background(
         self,
         *,
         access_token: str,
         progress_id: str,
-        input_url_future: Future[str],
+        input_url_future: Future[str | TimedUploadResult],
         output_url: str,
         prompt_description: str,
         classification: dict[str, Any],
@@ -62,6 +90,8 @@ class GlamifyProgressClient:
                 input_url = input_url_future.result(
                     timeout=wardrobe_constants.AZURE_UPLOAD_TIMEOUT_SECONDS,
                 )
+                if isinstance(input_url, TimedUploadResult):
+                    input_url = input_url.url
                 self.create_or_update_progress(
                     access_token=access_token,
                     progress_id=progress_id,
@@ -124,6 +154,29 @@ class GlamifyProgressClient:
             object_name=object_name,
             content_type=content_type,
             container=container,
+        )
+
+    def _upload_bytes_timed(
+        self,
+        *,
+        content: bytes,
+        object_name: str,
+        container: str,
+        content_type: str,
+    ) -> TimedUploadResult:
+        started = perf_counter()
+        url = self._upload_bytes(
+            content=content,
+            object_name=object_name,
+            container=container,
+            content_type=content_type,
+        )
+        return TimedUploadResult(
+            url=url,
+            wall_seconds=float(round(perf_counter() - started, 3)),
+            container=container,
+            object_name=object_name,
+            bytes=len(content),
         )
 
 

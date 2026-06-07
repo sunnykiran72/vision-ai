@@ -6,6 +6,7 @@ from PIL import Image
 from app.clients.qwen_diffusers_engine import (
     QwenDiffusersWardrobeEngine,
     WardrobeDiffusersRuntimeError,
+    _resolve_torch_dtype,
     resize_input_for_model,
 )
 from app.config import Settings
@@ -44,3 +45,41 @@ def test_run_extract_rejects_unknown_category_without_loading() -> None:
             prompt="x",
             garment_type="outer",
         )
+
+
+class _TorchDtypes:
+    bfloat16 = object()
+    float16 = object()
+    float32 = object()
+    float8_e4m3fn = object()
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        ("bfloat16", _TorchDtypes.bfloat16),
+        ("bf16", _TorchDtypes.bfloat16),
+        ("float16", _TorchDtypes.float16),
+        ("fp16", _TorchDtypes.float16),
+        ("float8_e4m3fn", _TorchDtypes.float8_e4m3fn),
+        ("fp8", _TorchDtypes.float8_e4m3fn),
+        ("float32", _TorchDtypes.float32),
+    ],
+)
+def test_resolve_torch_dtype_aliases(requested: str, expected: object) -> None:
+    assert (
+        _resolve_torch_dtype(torch_module=_TorchDtypes, requested=requested, device="cuda")
+        is expected
+    )
+
+
+def test_resolve_torch_dtype_uses_float32_off_cuda() -> None:
+    assert (
+        _resolve_torch_dtype(torch_module=_TorchDtypes, requested="float8_e4m3fn", device="cpu")
+        is _TorchDtypes.float32
+    )
+
+
+def test_resolve_torch_dtype_rejects_invalid_dtype() -> None:
+    with pytest.raises(WardrobeDiffusersRuntimeError):
+        _resolve_torch_dtype(torch_module=_TorchDtypes, requested="int8", device="cuda")

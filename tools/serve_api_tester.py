@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
 HTML = ROOT / "glamify_api_tester.html"
+AWQ_HTML = ROOT / "minicpm_awq_tester.html"
 HOST = "127.0.0.1"
 PORT = 8765
 TOKEN_TTL_SECONDS = 3600
@@ -81,6 +82,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path in {"/", "/glamify_api_tester.html"}:
             self._send_bytes(HTML.read_bytes(), "text/html; charset=utf-8")
+            return
+        if self.path in {"/awq", "/minicpm_awq_tester.html"}:
+            self._send_bytes(AWQ_HTML.read_bytes(), "text/html; charset=utf-8")
             return
         if self.path.startswith("/proxy"):
             self._proxy_raw("GET")

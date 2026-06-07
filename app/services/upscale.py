@@ -40,6 +40,7 @@ def run_upscale_request(
         downloaded_media = download_media_from_url(str(payload.image_url))
         job_paths = build_job_media_paths(
             Path(resolved_settings.upscale_work_root),
+            output_extension=".png",
         )
         image = Image.open(BytesIO(downloaded_media.content)).convert("RGB")
         input_width, input_height = image.size
@@ -61,7 +62,7 @@ def run_upscale_request(
         action = "upscaled"
         runner_metadata: dict[str, object]
         if input_long_edge >= target_long_edge:
-            image.save(job_paths.output_path, format="JPEG", quality=95)
+            image.save(job_paths.output_path, format="PNG")
             runner_metadata = {
                 "mode": "skipped",
                 "reason": "input_already_meets_target",
@@ -114,11 +115,12 @@ def run_upscale_request(
             output_filename=None,
             prefix=storage_prefix,
             default_name="output",
+            extension=".png",
         )
         output_url = storage_client.upload_file(
             job_paths.output_path,
             object_name=object_name,
-            content_type="image/jpeg",
+            content_type="image/png",
         )
 
         return UpscaleResponse(

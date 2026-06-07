@@ -152,7 +152,7 @@ Storage key rule:
 - actual blob keys should be server-generated, for example:
 
 ```text
-{tenant_id}/{job_id}/output.jpg
+{tenant_id}/{job_id}/output.png
 ```
 
 ## Failure and status mapping

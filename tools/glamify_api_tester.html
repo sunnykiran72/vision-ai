@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glamify AI API Tester</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111315;
+      --panel: #181b1f;
+      --panel-2: #20252b;
+      --line: #333941;
+      --text: #eef1f4;
+      --muted: #9da7b2;
+      --accent: #9b8cff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+      --focus: #c4b5fd;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(1220px, calc(100vw - 32px));
+      margin: 24px auto 48px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+    p {
+      color: var(--muted);
+      margin: 0;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .stack { display: grid; gap: 12px; }
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    input, select, textarea, button {
+      font: inherit;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #0f1114;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 10px 11px;
+      outline: none;
+    }
+    textarea {
+      min-height: 82px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgb(196 181 253 / 18%);
+    }
+    button {
+      border: 1px solid #655bd9;
+      background: #6d5df7;
+      color: white;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: var(--panel-2);
+      border-color: var(--line);
+      color: var(--text);
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      background: var(--panel-2);
+      border-color: var(--line);
+      color: var(--muted);
+    }
+    .tab.active {
+      border-color: #655bd9;
+      background: #312e81;
+      color: #fff;
+    }
+    .hidden { display: none !important; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 70px;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .image-box {
+      min-height: 420px;
+      background: #0f1114;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 8px;
+    }
+    .image-box header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .image-frame {
+      min-height: 350px;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      border-radius: 6px;
+      background: #0b0d10;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .ok .dot { background: var(--ok); }
+    .warn .dot { background: var(--warn); }
+    .bad .dot { background: var(--bad); }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f1114;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 180px;
+      max-height: 460px;
+      overflow: auto;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #dbe4ee;
+    }
+    .hint {
+      padding: 10px 12px;
+      border: 1px solid #3f3b24;
+      background: #1f1a0c;
+      color: #e7d494;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .inline input {
+      width: auto;
+    }
+    @media (max-width: 920px) {
+      .grid, .preview-grid, .metrics { grid-template-columns: 1fr; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="topbar">
+      <div>
+        <h1>Glamify AI API Tester</h1>
+        <p>Local tester for wardrobe extraction and SeedVR2 upscale latency.</p>
+      </div>
+      <div id="status" class="status"><span class="dot"></span><span>Idle</span></div>
+    </div>
+
+    <div class="grid">
+      <section class="panel stack">
+        <h2>Connection</h2>
+        <label>
+          API base URL
+          <input id="apiBase" placeholder="https://your-runpod-http-service-url">
+        </label>
+        <label>
+          JWT access secret
+          <input id="jwtSecret" type="password" spellcheck="false" placeholder="Optional if the local proxy has JWT_ACCESS_SECRET">
+        </label>
+        <label>
+          User ID
+          <input id="jwtUserId" spellcheck="false" placeholder="Optional; generated if empty">
+        </label>
+        <button id="tokenBtn" class="secondary" type="button">Generate Access Token</button>
+        <label>
+          Generated access token
+          <textarea id="jwt" spellcheck="false" readonly placeholder="Generated locally by the tester"></textarea>
+        </label>
+        <button id="healthBtn" class="secondary" type="button">Check Health</button>
+        <div class="hint">
+          Run this page through the local proxy for CORS-free testing and automatic JWT creation:
+          <br><code>python3 tools/serve_api_tester.py</code>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="tabs">
+          <button id="wardrobeTab" class="tab active" type="button">Wardrobe</button>
+          <button id="upscaleTab" class="tab" type="button">Upscale</button>
+        </div>
+
+        <div id="wardrobePanel" class="stack">
+          <div class="row">
+            <label>
+              Garment image
+              <input id="wardrobeImage" type="file" accept="image/*">
+            </label>
+            <label>
+              Garment type
+              <select id="wardrobeType">
+                <option value="top">top</option>
+                <option value="bottom">bottom</option>
+                <option value="dress">dress</option>
+              </select>
+            </label>
+          </div>
+          <button id="wardrobeBtn" type="button">Send Wardrobe Request</button>
+        </div>
+
+        <div id="upscalePanel" class="stack hidden">
+          <div class="row">
+            <label>
+              Image URL
+              <input id="upscaleUrl" placeholder="https://.../image.jpg">
+            </label>
+            <label>
+              Metric
+              <select id="upscaleMetric">
+                <option value="2k">2k</option>
+                <option value="4k">4k</option>
+              </select>
+            </label>
+          </div>
+          <button id="useWardrobeOutputBtn" class="secondary" type="button">Use Wardrobe Output URL</button>
+          <button id="upscaleBtn" type="button">Send Upscale Request</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:16px">
+      <div class="metrics">
+        <div class="metric"><span>HTTP</span><strong id="httpMetric">-</strong></div>
+        <div class="metric"><span>Total Latency</span><strong id="latencyMetric">-</strong></div>
+        <div class="metric"><span>Feature Latency</span><strong id="featureLatencyMetric">-</strong></div>
+        <div class="metric"><span>Output</span><strong id="outputMetric">-</strong></div>
+      </div>
+
+      <div class="preview-grid">
+        <div class="image-box">
+          <header>
+            <span>Input Preview</span>
+            <span id="inputInfo">-</span>
+          </header>
+          <div class="image-frame" id="inputFrame"><p>No input selected</p></div>
+        </div>
+        <div class="image-box">
+          <header>
+            <span>Output Preview</span>
+            <a id="outputLink" href="#" target="_blank" rel="noreferrer" class="hidden">open</a>
+          </header>
+          <div class="image-frame" id="outputFrame"><p>No output yet</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel stack" style="margin-top:16px">
+      <h2>Response</h2>
+      <pre id="responseBox">{}</pre>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      apiBase: document.getElementById("apiBase"),
+      jwtSecret: document.getElementById("jwtSecret"),
+      jwtUserId: document.getElementById("jwtUserId"),
+      jwt: document.getElementById("jwt"),
+      tokenBtn: document.getElementById("tokenBtn"),
+      healthBtn: document.getElementById("healthBtn"),
+      wardrobeTab: document.getElementById("wardrobeTab"),
+      upscaleTab: document.getElementById("upscaleTab"),
+      wardrobePanel: document.getElementById("wardrobePanel"),
+      upscalePanel: document.getElementById("upscalePanel"),
+      wardrobeImage: document.getElementById("wardrobeImage"),
+      wardrobeType: document.getElementById("wardrobeType"),
+      wardrobeBtn: document.getElementById("wardrobeBtn"),
+      upscaleUrl: document.getElementById("upscaleUrl"),
+      upscaleMetric: document.getElementById("upscaleMetric"),
+      upscaleBtn: document.getElementById("upscaleBtn"),
+      useWardrobeOutputBtn: document.getElementById("useWardrobeOutputBtn"),
+      status: document.getElementById("status"),
+      httpMetric: document.getElementById("httpMetric"),
+      latencyMetric: document.getElementById("latencyMetric"),
+      featureLatencyMetric: document.getElementById("featureLatencyMetric"),
+      outputMetric: document.getElementById("outputMetric"),
+      inputFrame: document.getElementById("inputFrame"),
+      inputInfo: document.getElementById("inputInfo"),
+      outputFrame: document.getElementById("outputFrame"),
+      outputLink: document.getElementById("outputLink"),
+      responseBox: document.getElementById("responseBox"),
+    };
+
+    let lastWardrobeOutputUrl = "";
+    let tokenExpiresAt = 0;
+
+    function loadSettings() {
+      els.apiBase.value = localStorage.getItem("glamifyTester.apiBase") || "http://127.0.0.1:8000";
+      els.jwtUserId.value = localStorage.getItem("glamifyTester.jwtUserId") || "";
+      els.wardrobeType.value = localStorage.getItem("glamifyTester.wardrobeType") || "top";
+      els.upscaleMetric.value = localStorage.getItem("glamifyTester.upscaleMetric") || "2k";
+    }
+
+    function saveSettings() {
+      localStorage.setItem("glamifyTester.apiBase", cleanBaseUrl());
+      localStorage.setItem("glamifyTester.jwtUserId", els.jwtUserId.value.trim());
+      localStorage.setItem("glamifyTester.wardrobeType", els.wardrobeType.value);
+      localStorage.setItem("glamifyTester.upscaleMetric", els.upscaleMetric.value);
+    }
+
+    function cleanBaseUrl() {
+      return els.apiBase.value.trim().replace(/\/+$/, "");
+    }
+
+    function cleanToken() {
+      return els.jwt.value.trim().replace(/^Bearer\s+/i, "");
+    }
+
+    function setStatus(kind, text) {
+      els.status.className = `status ${kind || ""}`.trim();
+      els.status.querySelector("span:last-child").textContent = text;
+    }
+
+    function setBusy(isBusy) {
+      els.tokenBtn.disabled = isBusy;
+      els.healthBtn.disabled = isBusy;
+      els.wardrobeBtn.disabled = isBusy;
+      els.upscaleBtn.disabled = isBusy;
+    }
+
+    function resetResult() {
+      els.httpMetric.textContent = "-";
+      els.latencyMetric.textContent = "-";
+      els.featureLatencyMetric.textContent = "-";
+      els.outputMetric.textContent = "-";
+      els.outputFrame.innerHTML = "<p>No output yet</p>";
+      els.outputLink.classList.add("hidden");
+      els.outputLink.removeAttribute("href");
+      els.responseBox.textContent = "{}";
+    }
+
+    function renderJson(value) {
+      els.responseBox.textContent = JSON.stringify(value, null, 2);
+    }
+
+    function renderOutput(url) {
+      if (!url) {
+        els.outputFrame.innerHTML = "<p>No output URL returned</p>";
+        els.outputLink.classList.add("hidden");
+        els.outputMetric.textContent = "-";
+        return;
+      }
+      els.outputFrame.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "API output";
+      els.outputFrame.appendChild(img);
+      els.outputLink.href = url;
+      els.outputLink.classList.remove("hidden");
+      els.outputMetric.textContent = "image";
+    }
+
+    async function parseResponse(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { raw: text };
+      }
+    }
+
+    function useProxy() {
+      return ["127.0.0.1:8765", "localhost:8765"].includes(window.location.host);
+    }
+
+    async function generateToken() {
+      if (!useProxy()) {
+        throw new Error("Open this tester through http://127.0.0.1:8765 to generate local JWTs.");
+      }
+      const response = await fetch("/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: els.jwtSecret.value.trim(),
+          user_id: els.jwtUserId.value.trim(),
+          ttl_seconds: 3600,
+        }),
+      });
+      const body = await parseResponse(response);
+      if (!response.ok) {
+        throw new Error(body?.error || "Failed to generate token.");
+      }
+      els.jwt.value = body.token;
+      els.jwtUserId.value = body.user_id || els.jwtUserId.value;
+      tokenExpiresAt = body.expires_at || 0;
+      saveSettings();
+      return body.token;
+    }
+
+    async function ensureToken() {
+      const now = Math.floor(Date.now() / 1000);
+      if (cleanToken() && tokenExpiresAt > now + 60) return cleanToken();
+      if (useProxy()) return generateToken();
+      const token = cleanToken();
+      if (!token) throw new Error("JWT bearer token is required.");
+      return token;
+    }
+
+    async function authHeaders() {
+      const token = await ensureToken();
+      return { Authorization: `Bearer ${token}` };
+    }
+
+    async function requestJson(path, options) {
+      const base = cleanBaseUrl();
+      if (!base) throw new Error("API base URL is required.");
+      saveSettings();
+      const target = `${base}${path}`;
+      const requestUrl = useProxy()
+        ? `/proxy?url=${encodeURIComponent(target)}`
+        : target;
+      const started = performance.now();
+      const response = await fetch(requestUrl, options);
+      const elapsed = performance.now() - started;
+      const body = await parseResponse(response);
+      return { response, body, elapsed };
+    }
+
+    function applyMetrics(response, body, elapsed) {
+      els.httpMetric.textContent = `${response.status}`;
+      els.latencyMetric.textContent = `${(elapsed / 1000).toFixed(2)}s`;
+      const wall = body?.data?.metadata?.timings?.wall_seconds
+        ?? body?.data?.metadata?.runner?.wall_seconds
+        ?? body?.data?.metadata?.latency_ms;
+      els.featureLatencyMetric.textContent = wall == null
+        ? "-"
+        : typeof wall === "number" && wall > 1000
+          ? `${(wall / 1000).toFixed(2)}s`
+          : `${wall}s`;
+    }
+
+    async function checkHealth() {
+      resetResult();
+      setBusy(true);
+      setStatus("warn", "Checking health");
+      try {
+        const { response, body, elapsed } = await requestJson("/health", { method: "GET" });
+        applyMetrics(response, body, elapsed);
+        renderJson(body);
+        setStatus(response.ok ? "ok" : "bad", response.ok ? "Healthy" : "Health failed");
+      } catch (error) {
+        renderJson({ error: error.message });
+        setStatus("bad", "Request failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function sendWardrobe() {
+      const file = els.wardrobeImage.files?.[0];
+      if (!file) {
+        setStatus("bad", "Choose an image");
+        return;
+      }
+      resetResult();
+      setBusy(true);
+      setStatus("warn", "Wardrobe request running");
+      const form = new FormData();
+      form.append("image", file, file.name || "garment.jpg");
+      form.append("type", els.wardrobeType.value);
+      try {
+        const headers = await authHeaders();
+        const { response, body, elapsed } = await requestJson("/v1/wardrobe", {
+          method: "POST",
+          headers,
+          body: form,
+        });
+        applyMetrics(response, body, elapsed);
+        renderJson(body);
+        const url = body?.data?.image || "";
+        lastWardrobeOutputUrl = url;
+        renderOutput(url);
+        if (url) els.upscaleUrl.value = url;
+        setStatus(response.ok ? "ok" : "bad", response.ok ? "Wardrobe complete" : "Wardrobe failed");
+      } catch (error) {
+        renderJson({ error: error.message });
+        setStatus("bad", "Request failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function sendUpscale() {
+      const imageUrl = els.upscaleUrl.value.trim();
+      if (!imageUrl) {
+        setStatus("bad", "Image URL required");
+        return;
+      }
+      resetResult();
+      setBusy(true);
+      setStatus("warn", "Upscale request running");
+      try {
+        const headers = await authHeaders();
+        const { response, body, elapsed } = await requestJson("/v1/upscale", {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            image_url: imageUrl,
+            metric: els.upscaleMetric.value,
+          }),
+        });
+        applyMetrics(response, body, elapsed);
+        renderJson(body);
+        renderOutput(body?.data?.url || "");
+        setStatus(response.ok ? "ok" : "bad", response.ok ? "Upscale complete" : "Upscale failed");
+      } catch (error) {
+        renderJson({ error: error.message });
+        setStatus("bad", "Request failed");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function showTab(name) {
+      const wardrobe = name === "wardrobe";
+      els.wardrobeTab.classList.toggle("active", wardrobe);
+      els.upscaleTab.classList.toggle("active", !wardrobe);
+      els.wardrobePanel.classList.toggle("hidden", !wardrobe);
+      els.upscalePanel.classList.toggle("hidden", wardrobe);
+    }
+
+    els.wardrobeImage.addEventListener("change", () => {
+      const file = els.wardrobeImage.files?.[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      els.inputFrame.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "Selected input";
+      img.onload = () => {
+        els.inputInfo.textContent = `${img.naturalWidth}x${img.naturalHeight}, ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      };
+      els.inputFrame.appendChild(img);
+      resetResult();
+    });
+
+    els.upscaleUrl.addEventListener("input", () => {
+      const url = els.upscaleUrl.value.trim();
+      if (!url) {
+        els.inputFrame.innerHTML = "<p>No input selected</p>";
+        els.inputInfo.textContent = "-";
+        return;
+      }
+      els.inputFrame.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "Upscale input URL";
+      img.onload = () => {
+        els.inputInfo.textContent = `${img.naturalWidth}x${img.naturalHeight}`;
+      };
+      img.onerror = () => {
+        els.inputInfo.textContent = "preview failed";
+      };
+      els.inputFrame.appendChild(img);
+    });
+
+    els.healthBtn.addEventListener("click", checkHealth);
+    els.tokenBtn.addEventListener("click", async () => {
+      setBusy(true);
+      setStatus("warn", "Generating token");
+      try {
+        await generateToken();
+        setStatus("ok", "Token ready");
+      } catch (error) {
+        renderJson({ error: error.message });
+        setStatus("bad", "Token failed");
+      } finally {
+        setBusy(false);
+      }
+    });
+    els.wardrobeBtn.addEventListener("click", sendWardrobe);
+    els.upscaleBtn.addEventListener("click", sendUpscale);
+    els.wardrobeTab.addEventListener("click", () => showTab("wardrobe"));
+    els.upscaleTab.addEventListener("click", () => showTab("upscale"));
+    els.useWardrobeOutputBtn.addEventListener("click", () => {
+      if (lastWardrobeOutputUrl) {
+        els.upscaleUrl.value = lastWardrobeOutputUrl;
+        els.upscaleUrl.dispatchEvent(new Event("input"));
+      }
+    });
+    ["apiBase", "jwtUserId", "wardrobeType", "upscaleMetric"].forEach((id) => {
+      els[id].addEventListener("change", saveSettings);
+      els[id].addEventListener("blur", saveSettings);
+    });
+
+    loadSettings();
+  </script>
+</body>
+</html>

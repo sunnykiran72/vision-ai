@@ -86,8 +86,8 @@ def test_run_upscale_request_returns_success_without_storage(
             content_type: str | None = None,
         ) -> str:
             assert file_path.exists()
-            assert object_name.endswith("/output.jpg")
-            assert content_type == "image/jpeg"
+            assert object_name.endswith("/output.png")
+            assert content_type == "image/png"
             return f"https://example.com/{object_name}"
 
     monkeypatch.setattr(upscale_service, "AzureStorageClient", FakeStorageClient)

@@ -45,10 +45,21 @@ class Settings(BaseSettings):
     wardrobe_lora_bottom_path: str = Field(default="", alias="WARDROBE_LORA_BOTTOM_PATH")
     wardrobe_lora_dress_path: str = Field(default="", alias="WARDROBE_LORA_DRESS_PATH")
     # MiniCPM-V garment captioner, loaded in-process via vLLM inside this service (no external
-    # service). Only the model pointer is environment-specific; all tuning lives in constants.
+    # service). Model pointer + dtype/KV-cache knobs are environment-specific; algorithmic tuning
+    # (tokens, slice nums, gpu util) lives in app/constants/wardrobe.py.
     minicpm_model_path: str = Field(
         default="openbmb/MiniCPM-V-4_5",
         alias="MINICPM_MODEL_PATH",
+    )
+    minicpm_dtype: str = Field(default="bfloat16", alias="MINICPM_DTYPE")
+    minicpm_kv_cache_dtype: str = Field(default="fp8", alias="MINICPM_KV_CACHE_DTYPE")
+    minicpm_calculate_kv_scales: bool = Field(
+        default=True,
+        alias="MINICPM_CALCULATE_KV_SCALES",
+    )
+    minicpm_attention_backend: str = Field(
+        default="",
+        alias="MINICPM_ATTENTION_BACKEND",
     )
     # Separate private Azure containers for wardrobe input and output images.
     azure_wardrobe_input_container: str = Field(

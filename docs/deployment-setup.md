@@ -71,10 +71,9 @@ lazily; `pyproject.toml` holds only the light web deps for local dev/CI).
 vLLM launch env (the reference's validated settings for Blackwell — FlashInfer fails on sm_120):
 
 ```bash
-export VLLM_ATTENTION_BACKEND=TORCH_SDPA
-export VLLM_USE_FLASHINFER=0
 export VLLM_USE_FLASHINFER_SAMPLER=0
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MINICPM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 
 ## 4. Stage models on the volume
@@ -111,6 +110,10 @@ WARDROBE_LORA_TOP_PATH=/workspace/loras/wardrobe/top_23000.safetensors
 WARDROBE_LORA_BOTTOM_PATH=/workspace/loras/wardrobe/bottom_30000.safetensors
 WARDROBE_LORA_DRESS_PATH=/workspace/loras/wardrobe/dress_27000.safetensors
 MINICPM_MODEL_PATH=openbmb/MiniCPM-V-4_5
+MINICPM_DTYPE=bfloat16
+MINICPM_KV_CACHE_DTYPE=fp8
+MINICPM_CALCULATE_KV_SCALES=true
+MINICPM_ATTENTION_BACKEND=TRITON_ATTN
 
 UPSCALE_MODEL_PATH=/workspace/models/seedvr2
 UPSCALE_MODEL_VARIANT=seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors
@@ -156,19 +159,24 @@ curl -s -X POST http://localhost:8000/v1/wardrobe \
 
 ## 8. VRAM & dtype
 
-- Qwen: bf16 (faithful baseline). MiniCPM: fp8 via vLLM, capped by `MINICPM_GPU_MEMORY_UTILIZATION`
-  (`0.27`, tune to the GPU). SeedVR2: the fp8 mixed variant above.
-- Warm all three, then check `nvidia-smi`. If tight: raise/lower `MINICPM_GPU_MEMORY_UTILIZATION`,
+- Qwen: bf16 (faithful baseline). MiniCPM: bf16 weights with fp8 KV cache via vLLM, capped by the
+  `MINICPM_GPU_MEMORY_UTILIZATION = 0.27` code constant. SeedVR2: the fp8 mixed variant above plus
+  `ema_vae_fp16.safetensors`.
+- Warm all three, then check `nvidia-smi`. If tight: lower the MiniCPM GPU utilization constant,
   or drop SeedVR2 to its 3B fp8 variant via `UPSCALE_MODEL_VARIANT`.
+- On the RTX PRO 6000 Blackwell 96 GB pod, the measured resident set is 88,421 MiB used after a
+  SeedVR2 tiny run, leaving 8,828 MiB free. On an 80 GB card this stack is not safe as a fully
+  resident all-model bundle without reducing the resident set or memory caps.
 - See `docs/wardrobe-flow.md` (constants) and the dtype guidance for the bf16-vs-fp8 reasoning.
 
 ## 9. Troubleshooting
 
 - **MiniCPM caption errors / tokenizer attribute missing**: transformers is `>=5`. Pin `<5`.
-- **vLLM FlashInfer crash (sm_120 / Blackwell)**: set `VLLM_USE_FLASHINFER=0` and
-  `VLLM_ATTENTION_BACKEND=TORCH_SDPA`.
-- **CUDA OOM at warmup**: lower `MINICPM_GPU_MEMORY_UTILIZATION`, use the SeedVR2 3B variant, or set
-  the SeedVR2 tensor offload to CPU (see `app/clients/seedvr2.py`).
+- **vLLM FlashInfer crash (sm_120 / Blackwell)**: set `MINICPM_ATTENTION_BACKEND=TRITON_ATTN`
+  and keep `VLLM_USE_FLASHINFER_SAMPLER=0`. The older `VLLM_ATTENTION_BACKEND` and
+  `VLLM_USE_FLASHINFER` environment variables are not recognized by this vLLM build.
+- **CUDA OOM at warmup**: lower the MiniCPM GPU utilization constant, use the SeedVR2 3B variant,
+  or set the SeedVR2 tensor offload to CPU (see `app/clients/seedvr2.py`).
 - **Startup config error**: a required env for a resident runtime is missing/invalid — the message
   lists which key.
 - **Slow first request**: expected if warmup was skipped; warmup runs automatically in the app

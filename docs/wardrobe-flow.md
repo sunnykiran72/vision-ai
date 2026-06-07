@@ -142,7 +142,9 @@ MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 | Max slice nums | `4` (`MINICPM_MAX_SLICE_NUMS`) |
 | Max model len | `4096` (`MINICPM_MAX_MODEL_LEN`) |
 | Temperature | `0.0` (`MINICPM_TEMPERATURE`) |
-| dtype | `bfloat16` (`MINICPM_DTYPE`) |
+| weight dtype | `bfloat16` (`MINICPM_DTYPE`) |
+| KV cache dtype | `fp8` (`MINICPM_KV_CACHE_DTYPE`) |
+| KV scale calculation | `true` (`MINICPM_CALCULATE_KV_SCALES`) |
 
 The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. The legacy
 `GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
@@ -740,8 +742,8 @@ nothing is unloaded afterwards:
 3. loads the fashion detector
 4. loads the Marqo classifier
 
-The Qwen base is loaded before MiniCPM so vLLM's `gpu_memory_utilization` accounts for the already
-resident Qwen weights.
+The Qwen base is loaded before MiniCPM so vLLM's capped `gpu_memory_utilization` accounts for the
+already resident Qwen weights.
 
 Health:
 - `app/services/health.py`

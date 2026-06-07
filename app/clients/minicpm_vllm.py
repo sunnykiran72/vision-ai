@@ -51,6 +51,7 @@ class MiniCPMVllmClient:
     """
 
     def __init__(self, settings: Settings) -> None:
+        self._settings = settings
         self._model = str(settings.minicpm_model_path or "").strip()
         self._llm: Any | None = None
         self._tokenizer: Any | None = None
@@ -133,17 +134,27 @@ class MiniCPMVllmClient:
 
         logger.info("Loading MiniCPM-V via vLLM: %s", self._model)
         tokenizer = AutoTokenizer.from_pretrained(self._model, trust_remote_code=True)
-        llm = LLM(
-            model=self._model,
-            trust_remote_code=True,
-            gpu_memory_utilization=wardrobe_constants.MINICPM_GPU_MEMORY_UTILIZATION,
-            max_model_len=wardrobe_constants.MINICPM_MAX_MODEL_LEN,
-            limit_mm_per_prompt={"image": 1},
-            dtype=wardrobe_constants.MINICPM_DTYPE,
-            enforce_eager=True,
-            max_num_seqs=1,
-            mm_processor_kwargs={"max_slice_nums": wardrobe_constants.MINICPM_MAX_SLICE_NUMS},
-        )
+        llm_kwargs: dict[str, Any] = {
+            "model": self._model,
+            "trust_remote_code": True,
+            "gpu_memory_utilization": wardrobe_constants.MINICPM_GPU_MEMORY_UTILIZATION,
+            "max_model_len": wardrobe_constants.MINICPM_MAX_MODEL_LEN,
+            "limit_mm_per_prompt": {"image": 1},
+            "dtype": self._settings.minicpm_dtype,
+            "enforce_eager": True,
+            "max_num_seqs": 1,
+            "mm_processor_kwargs": {
+                "max_slice_nums": wardrobe_constants.MINICPM_MAX_SLICE_NUMS,
+            },
+        }
+        if self._settings.minicpm_kv_cache_dtype:
+            llm_kwargs["kv_cache_dtype"] = self._settings.minicpm_kv_cache_dtype
+            llm_kwargs["calculate_kv_scales"] = self._settings.minicpm_calculate_kv_scales
+        if self._settings.minicpm_attention_backend:
+            llm_kwargs["attention_config"] = {
+                "backend": self._settings.minicpm_attention_backend,
+            }
+        llm = LLM(**llm_kwargs)
         stop_ids: list[int] | None
         try:
             candidate_ids = [

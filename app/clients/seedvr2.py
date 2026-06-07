@@ -207,7 +207,7 @@ class SeedVR2Client:
             "--output",
             str(output_path),
             "--output_format",
-            "jpg",
+            "png",
             "--dit_model",
             model_variant,
             "--model_dir",

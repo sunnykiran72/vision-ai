@@ -144,7 +144,7 @@ class MiniCPMVllmClient:
             "max_model_len": self._settings.minicpm_max_model_len,
             "limit_mm_per_prompt": {"image": 1},
             "dtype": self._settings.minicpm_dtype,
-            "enforce_eager": True,
+            "enforce_eager": self._settings.minicpm_enforce_eager,
             "max_num_seqs": 1,
             "mm_processor_kwargs": {
                 "max_slice_nums": self._settings.minicpm_max_slice_nums,

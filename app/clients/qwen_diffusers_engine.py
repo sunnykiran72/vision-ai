@@ -69,9 +69,11 @@ class QwenDiffusersWardrobeEngine:
         self._torch: Any | None = None
         self._loaded_loras: set[str] = set()
         self._active_lora: str | None = None
+        self._compiled = False
         self._device = "cpu"
         self._dtype_name = "float32"
         self._load_lock = threading.Lock()
+        self._compile_lock = threading.Lock()
         self._infer_lock = threading.Lock()
 
     # ----- lifecycle -------------------------------------------------------
@@ -80,28 +82,33 @@ class QwenDiffusersWardrobeEngine:
         self._ensure_pipeline()
         for category in WARDROBE_CATEGORIES:
             self._ensure_lora(category)
-        first = WARDROBE_CATEGORIES[0]
         warm = Image.new(
             "RGB",
             (wardrobe_constants.OUTPUT_WIDTH, wardrobe_constants.OUTPUT_HEIGHT),
             "white",
         )
         started = time.perf_counter()
-        self._generate(
-            category=first,
-            images=warm,
-            prompt=wardrobe_constants.QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE[first].format(
-                caption="a garment",
-            ),
-            steps=wardrobe_constants.GENERATION_STEPS,
-            seed=wardrobe_constants.GENERATION_SEED,
-            width=wardrobe_constants.OUTPUT_WIDTH,
-            height=wardrobe_constants.OUTPUT_HEIGHT,
-            lora_scale=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
+        warm_categories = (
+            WARDROBE_CATEGORIES if self._settings.qwen_compile else WARDROBE_CATEGORIES[:1]
         )
+        for category in warm_categories:
+            self._generate(
+                category=category,
+                images=warm,
+                prompt=wardrobe_constants.QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE[category].format(
+                    caption="a garment",
+                ),
+                steps=wardrobe_constants.GENERATION_STEPS,
+                seed=wardrobe_constants.GENERATION_SEED,
+                width=wardrobe_constants.OUTPUT_WIDTH,
+                height=wardrobe_constants.OUTPUT_HEIGHT,
+                lora_scale=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
+            )
         logger.info(
-            "Qwen wardrobe diffusers runtime ready (device=%s, loras=%s, warm=%.1fs)",
+            "Qwen wardrobe diffusers runtime ready (device=%s, dtype=%s, compile=%s, loras=%s, warm=%.1fs)",
             self._device,
+            self._dtype_name,
+            self._compiled,
             sorted(self._loaded_loras),
             time.perf_counter() - started,
         )
@@ -157,6 +164,7 @@ class QwenDiffusersWardrobeEngine:
             },
             "dtype": self._dtype_name,
             "device": self._device,
+            "compiled": self._compiled,
         }
         return WardrobeRunResult(
             image=image,
@@ -212,6 +220,7 @@ class QwenDiffusersWardrobeEngine:
         self._ensure_lora(category)
         if self._pipeline is None or self._torch is None:
             raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
+        self._ensure_compiled()
         with self._infer_lock:
             self._pipeline.set_adapters([category], [float(lora_scale)])
             generator = self._torch.Generator(device=self._device).manual_seed(int(seed))
@@ -275,6 +284,31 @@ class QwenDiffusersWardrobeEngine:
             self._device,
             self._dtype_name,
         )
+
+    def _ensure_compiled(self) -> None:
+        if self._compiled or not self._settings.qwen_compile:
+            return
+        if self._device != "cuda":
+            logger.info("Skipping Qwen torch.compile because device is %s", self._device)
+            return
+        if self._pipeline is None or self._torch is None:
+            raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
+        with self._compile_lock:
+            if self._compiled or not self._settings.qwen_compile:
+                return
+            transformer = getattr(self._pipeline, "transformer", None)
+            blocks = getattr(transformer, "transformer_blocks", None)
+            if blocks is None:
+                raise WardrobeDiffusersRuntimeError(
+                    "QWEN_COMPILE=1 requires pipeline.transformer.transformer_blocks.",
+                )
+            for index, block in enumerate(blocks):
+                blocks[index] = self._torch.compile(block, dynamic=False)
+            self._compiled = True
+            logger.info(
+                "Compiled Qwen transformer blocks with torch.compile(dynamic=False): %d blocks",
+                len(blocks),
+            )
 
     def _ensure_lora(self, category: str) -> None:
         if category in self._loaded_loras:

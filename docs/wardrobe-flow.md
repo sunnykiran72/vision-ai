@@ -137,14 +137,15 @@ MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 
 | Concern | Value |
 | --- | --- |
-| GPU memory utilization | `0.27` default (`MINICPM_GPU_MEMORY_UTILIZATION`) |
-| Max tokens | `90` (`MINICPM_MAX_TOKENS`) |
-| Max slice nums | `4` (`MINICPM_MAX_SLICE_NUMS`) |
-| Max model len | `4096` (`MINICPM_MAX_MODEL_LEN`) |
+| GPU memory utilization | `0.10` AWQ profile (`MINICPM_GPU_MEMORY_UTILIZATION`) |
+| Max tokens | `100` (`MINICPM_MAX_TOKENS`) |
+| Max slice nums | `6` (`MINICPM_MAX_SLICE_NUMS`) |
+| Max model len | `2048` (`MINICPM_MAX_MODEL_LEN`) |
 | Temperature | `0.0` (`MINICPM_TEMPERATURE`) |
-| weight dtype | `bfloat16` (`MINICPM_DTYPE`) |
-| KV cache dtype | `fp8` (`MINICPM_KV_CACHE_DTYPE`) |
-| KV scale calculation | `true` (`MINICPM_CALCULATE_KV_SCALES`) |
+| weight dtype | `auto` for AWQ (`MINICPM_DTYPE`) |
+| KV cache dtype | `auto` (`MINICPM_KV_CACHE_DTYPE`) |
+| KV scale calculation | `false` (`MINICPM_CALCULATE_KV_SCALES`) |
+| CUDA graph mode | `MINICPM_ENFORCE_EAGER=false` |
 
 The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. The legacy
 `GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
@@ -153,6 +154,13 @@ the file for the AI-Toolkit try-on path and are not used by wardrobe.
 Qwen diffusers dtype is controlled by `QWEN_IMAGE_EDIT_DTYPE`. Use `bfloat16` for the production
 baseline. `float8_e4m3fn` is available only as an experimental comparison path and should be judged
 by actual image output before production use.
+
+Qwen transformer-block compilation is controlled by `QWEN_COMPILE`. The production default is
+`false`. When enabled, the wardrobe runtime compiles the Qwen transformer blocks with
+`torch.compile(dynamic=False)` after all three wardrobe LoRAs are loaded, then warms top, bottom,
+and dress once at startup. This is benchmark-only for now: varied MiniCPM caption lengths and input
+image shapes can trigger new graph specializations, causing slow first requests even though repeated
+identical prompts can be faster.
 
 Static prompts (all in `app/constants/wardrobe.py`):
 
@@ -317,9 +325,9 @@ Client:
 MiniCPM-V is loaded **in-process via vLLM inside this service** — there is no external model
 server or separate port. It is a faithful port of the validated reference engine: vLLM loads the
 model in this process and coexists on one GPU beside the resident Qwen model, capped via
-`MINICPM_GPU_MEMORY_UTILIZATION`, running `enforce_eager=True` and `max_num_seqs=1`. The model
-pointer, dtype, KV cache dtype, and memory cap are environment-specific; algorithmic tuning is in
-`app/constants/wardrobe.py`.
+`MINICPM_GPU_MEMORY_UTILIZATION` and `max_num_seqs=1`. `MINICPM_ENFORCE_EAGER=false` allows vLLM
+CUDA graphs for lower caption latency when VRAM headroom permits. The model pointer, dtype, KV cache
+dtype, memory cap, max slices, and eager/CUDA-graph mode are environment-specific.
 
 After the detector gate, the preprocessed image and the per-type `MINICPM_PROMPT_BY_TYPE[type]`
 prompt are passed to MiniCPM, which returns one factual caption describing only the requested
@@ -485,6 +493,11 @@ Client:
 
 Input and output images are stored in **two separate private containers**. If Azure is not
 configured, the request fails with `500` before generation.
+
+The storage client keeps a process-wide cached `BlobServiceClient`, so repeated uploads reuse the
+SDK client and its underlying connection pool instead of rebuilding the Azure client for every
+input/output image. The API still waits for the output upload to complete before returning
+`data.image`; this optimization only removes avoidable connection setup overhead.
 
 Storage layout:
 

@@ -26,6 +26,8 @@ def get_wardrobe_runner(settings: Settings | None = None) -> QwenDiffusersWardro
     resolved_settings = settings or get_settings()
     return _get_wardrobe_runner_cached(
         resolved_settings.qwen_image_edit_model_path,
+        resolved_settings.qwen_image_edit_dtype,
+        resolved_settings.qwen_compile,
         resolved_settings.wardrobe_lora_top_path,
         resolved_settings.wardrobe_lora_bottom_path,
         resolved_settings.wardrobe_lora_dress_path,
@@ -35,12 +37,16 @@ def get_wardrobe_runner(settings: Settings | None = None) -> QwenDiffusersWardro
 @lru_cache(maxsize=8)
 def _get_wardrobe_runner_cached(
     qwen_image_edit_model_path: str,
+    qwen_image_edit_dtype: str,
+    qwen_compile: bool,
     wardrobe_lora_top_path: str,
     wardrobe_lora_bottom_path: str,
     wardrobe_lora_dress_path: str,
 ) -> QwenDiffusersWardrobeEngine:
     settings = Settings(
         QWEN_IMAGE_EDIT_MODEL_PATH=qwen_image_edit_model_path,
+        QWEN_IMAGE_EDIT_DTYPE=qwen_image_edit_dtype,
+        QWEN_COMPILE=qwen_compile,
         WARDROBE_LORA_TOP_PATH=wardrobe_lora_top_path,
         WARDROBE_LORA_BOTTOM_PATH=wardrobe_lora_bottom_path,
         WARDROBE_LORA_DRESS_PATH=wardrobe_lora_dress_path,

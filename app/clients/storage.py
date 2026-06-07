@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+from functools import lru_cache
 from pathlib import Path
 
 from azure.storage.blob import BlobServiceClient, ContentSettings
@@ -76,7 +77,7 @@ class AzureStorageClient:
 
     def _get_client(self) -> BlobServiceClient:
         if self._client is None:
-            self._client = BlobServiceClient.from_connection_string(
+            self._client = _get_blob_service_client(
                 self._settings.azure_storage_connection_string,
             )
         return self._client
@@ -92,3 +93,8 @@ class AzureStorageClient:
     def _infer_content_type(object_name: str) -> str:
         guessed, _ = mimetypes.guess_type(Path(object_name).name)
         return guessed or "application/octet-stream"
+
+
+@lru_cache(maxsize=8)
+def _get_blob_service_client(connection_string: str) -> BlobServiceClient:
+    return BlobServiceClient.from_connection_string(connection_string)

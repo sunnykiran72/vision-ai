@@ -107,15 +107,21 @@ AZURE_WARDROBE_OUTPUT_CONTAINER=wardrobe-outputs
 
 QWEN_IMAGE_EDIT_MODEL_PATH=/workspace/models/qwen-image-edit-2511
 QWEN_IMAGE_EDIT_DTYPE=bfloat16
+QWEN_COMPILE=false
 WARDROBE_LORA_TOP_PATH=/workspace/loras/wardrobe/top_23000.safetensors
 WARDROBE_LORA_BOTTOM_PATH=/workspace/loras/wardrobe/bottom_30000.safetensors
 WARDROBE_LORA_DRESS_PATH=/workspace/loras/wardrobe/dress_27000.safetensors
-MINICPM_MODEL_PATH=openbmb/MiniCPM-V-4_5
-MINICPM_DTYPE=bfloat16
-MINICPM_GPU_MEMORY_UTILIZATION=0.27
-MINICPM_KV_CACHE_DTYPE=fp8
-MINICPM_CALCULATE_KV_SCALES=true
-MINICPM_ATTENTION_BACKEND=TRITON_ATTN
+MINICPM_MODEL_PATH=/workspace/models/minicpm-v-4_5-awq
+MINICPM_DTYPE=auto
+MINICPM_GPU_MEMORY_UTILIZATION=0.10
+MINICPM_KV_CACHE_DTYPE=auto
+MINICPM_CALCULATE_KV_SCALES=false
+MINICPM_ATTENTION_BACKEND=
+MINICPM_MAX_TOKENS=100
+MINICPM_MAX_MODEL_LEN=2048
+MINICPM_MAX_SLICE_NUMS=6
+MINICPM_RESIZE_LONG_PX=1024
+MINICPM_ENFORCE_EAGER=false
 
 UPSCALE_MODEL_PATH=/workspace/models/seedvr2
 UPSCALE_MODEL_VARIANT=seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors
@@ -161,8 +167,11 @@ curl -s -X POST http://localhost:8000/v1/wardrobe \
 
 ## 8. VRAM & dtype
 
-- Qwen: bf16 (faithful baseline; `QWEN_IMAGE_EDIT_DTYPE=float8_e4m3fn` is experimental). MiniCPM: bf16 weights with fp8 KV cache via vLLM, capped by
-  `MINICPM_GPU_MEMORY_UTILIZATION` (default `0.27` for the all-resident 96 GB pod). SeedVR2: the fp8 mixed variant above plus
+- Qwen: bf16 (faithful baseline). Keep `QWEN_COMPILE=false` for production until variable
+  prompt/image shapes are handled without graph-specialization spikes. `QWEN_COMPILE=true` remains
+  a benchmark-only option for repeated fixed-shape prompts. MiniCPM: AWQ weights via
+  vLLM, capped by `MINICPM_GPU_MEMORY_UTILIZATION=0.10`, with CUDA graphs enabled by
+  `MINICPM_ENFORCE_EAGER=false`. SeedVR2: the fp8 mixed variant above plus
   `ema_vae_fp16.safetensors`.
 - Warm all three, then check `nvidia-smi`. If tight: lower `MINICPM_GPU_MEMORY_UTILIZATION`,
   or drop SeedVR2 to its 3B fp8 variant via `UPSCALE_MODEL_VARIANT`.

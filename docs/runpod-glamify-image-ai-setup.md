@@ -115,17 +115,24 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 MiniCPM is loaded in-process through vLLM. The production defaults are:
 
 ```bash
-MINICPM_MODEL_PATH=openbmb/MiniCPM-V-4_5
-MINICPM_DTYPE=bfloat16
-MINICPM_GPU_MEMORY_UTILIZATION=0.27
-MINICPM_KV_CACHE_DTYPE=fp8
-MINICPM_CALCULATE_KV_SCALES=true
-MINICPM_ATTENTION_BACKEND=TRITON_ATTN
+QWEN_COMPILE=false
+MINICPM_MODEL_PATH=/workspace/models/minicpm-v-4_5-awq
+MINICPM_DTYPE=auto
+MINICPM_GPU_MEMORY_UTILIZATION=0.10
+MINICPM_KV_CACHE_DTYPE=auto
+MINICPM_CALCULATE_KV_SCALES=false
+MINICPM_ATTENTION_BACKEND=
+MINICPM_MAX_TOKENS=100
+MINICPM_MAX_MODEL_LEN=2048
+MINICPM_MAX_SLICE_NUMS=6
+MINICPM_RESIZE_LONG_PX=1024
+MINICPM_ENFORCE_EAGER=false
 ```
 
-On this Blackwell pod, vLLM 0.22.1 ignores the older `VLLM_ATTENTION_BACKEND` environment variable
-and may auto-select FlashInfer. Force `MINICPM_ATTENTION_BACKEND=TRITON_ATTN` so MiniCPM does not
-enter the FlashInfer path.
+`QWEN_COMPILE=false` is the production default. `QWEN_COMPILE=true` remains available for benchmark
+runs, but `torch.compile(dynamic=False)` can specialize to prompt/image shapes and cause slow first
+requests for varied garments. `MINICPM_ENFORCE_EAGER=false` lets vLLM use CUDA graphs for the AWQ
+captioner when VRAM headroom permits.
 
 SeedVR2 uses the fp8 mixed model variant:
 
@@ -177,7 +184,7 @@ because it actually loads Qwen, MiniCPM, detector, Marqo, and optionally SeedVR2
 ## Resident VRAM measurement
 
 Measured on `sporting_violet_lemming` with RTX PRO 6000 Blackwell 96 GB, torch `2.11.0+cu130`,
-vLLM `0.22.1`, Qwen bf16, MiniCPM bf16 weights + fp8 KV cache, and SeedVR2 7B fp8 mixed:
+vLLM `0.22.1`, Qwen bf16, MiniCPM AWQ with auto KV cache, and SeedVR2 7B fp8 mixed:
 
 | stage | used VRAM | free VRAM |
 |---|---:|---:|
@@ -188,10 +195,8 @@ vLLM `0.22.1`, Qwen bf16, MiniCPM bf16 weights + fp8 KV cache, and SeedVR2 7B fp
 | Marqo fashionSigLIP | 80,011 MiB | 17,238 MiB |
 | SeedVR2 tiny run | 88,421 MiB | 8,828 MiB |
 
-This measurement does not include wardrobe LoRAs because `/workspace/loras/wardrobe` is still empty.
-For the all-resident pod, keep `MINICPM_GPU_MEMORY_UTILIZATION` explicit. `0.10` and `0.20` are too
-low for MiniCPM weights plus KV cache in the full resident stack. Use `0.27` as the current working
-default, clear stale vLLM workers before warmup, and verify with `nvidia-smi` after warmup.
+For the all-resident pod, keep `MINICPM_GPU_MEMORY_UTILIZATION` explicit. The current AWQ profile
+uses `0.10`; clear stale vLLM workers before warmup and verify with `nvidia-smi` after warmup.
 - Stage wardrobe LoRAs into `/workspace/loras/wardrobe`.
 - Fill `.env` with Azure, JWT, Glamify backend URL, and selected resident runtimes.
 - Start the service with the RunPod launch script:

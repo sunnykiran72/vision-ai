@@ -27,12 +27,14 @@ class AzureStorageClient:
         *,
         object_name: str,
         content_type: str | None = None,
+        container: str | None = None,
     ) -> str:
         if not self.is_configured:
             raise RuntimeError("Azure storage is not configured.")
 
+        resolved_container = container or self._settings.azure_storage_container
         blob_client = self._get_client().get_blob_client(
-            container=self._settings.azure_storage_container,
+            container=resolved_container,
             blob=object_name,
         )
         resolved_content_type = content_type or self._infer_content_type(object_name)
@@ -46,7 +48,7 @@ class AzureStorageClient:
             overwrite=True,
             content_settings=content_settings,
         )
-        return self.build_blob_url(object_name)
+        return self.build_blob_url(object_name, container=resolved_container)
 
     def upload_file(
         self,
@@ -54,19 +56,22 @@ class AzureStorageClient:
         *,
         object_name: str,
         content_type: str | None = None,
+        container: str | None = None,
     ) -> str:
         return self.upload_bytes(
             file_path.read_bytes(),
             object_name=object_name,
             content_type=content_type,
+            container=container,
         )
 
-    def build_blob_url(self, object_name: str) -> str:
+    def build_blob_url(self, object_name: str, *, container: str | None = None) -> str:
         if not self._account_name:
             raise RuntimeError("Unable to derive Azure storage account name.")
+        resolved_container = container or self._settings.azure_storage_container
         return (
             f"https://{self._account_name}.blob.core.windows.net/"
-            f"{self._settings.azure_storage_container}/{object_name}"
+            f"{resolved_container}/{object_name}"
         )
 
     def _get_client(self) -> BlobServiceClient:

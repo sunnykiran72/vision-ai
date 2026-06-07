@@ -69,9 +69,10 @@ def main() -> None:
         "QWEN_IMAGE_EDIT_MODEL_PATH": args.qwen_model_path
         or _first_existing(DEFAULT_MODEL_CANDIDATES),
         "AI_TOOLKIT_ROOT": args.ai_toolkit_root or _first_existing(DEFAULT_AITK_CANDIDATES),
-        "WARDROBE_QUEUE_MAX_SIZE": "4",
-        "WARDROBE_WORK_ROOT": "/tmp/glamify/wardrobe",
-        "WARDROBE_STORAGE_PREFIX": "wardrobe_output/wardrobe",
+        "SYSTEM_QUEUE_MAX_SIZE": "4",
+        "MINICPM_MODEL_PATH": "openbmb/MiniCPM-V-4_5",
+        "AZURE_WARDROBE_INPUT_CONTAINER": "wardrobe-inputs",
+        "AZURE_WARDROBE_OUTPUT_CONTAINER": "wardrobe-outputs",
         "TRYON_USE_SPECIALISTS": "true",
         "TRYON_ENABLED_SPECIALISTS": "top,bottom,dress,multi",
         "TRYON_LORA_RANK": "16",

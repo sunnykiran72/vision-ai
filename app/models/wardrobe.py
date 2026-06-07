@@ -13,19 +13,10 @@ class WardrobeGarmentType(StrEnum):
     DRESS = "dress"
 
 
-class WardrobeAnalyzeRequest(BaseModel):
-    image: str = Field(..., min_length=1, description="Raw base64 or image data URL")
-    type: WardrobeGarmentType = Field(..., description="Requested garment extraction type")
-    prompt: str | None = Field(
-        default=None,
-        description="Optional Qwen prompt override for prompt testing",
-    )
-
-
 class WardrobeAnalyzeResult(BaseModel):
     id: str
     type: WardrobeGarmentType
-    image: str
+    image: str = Field(..., description="Public URL of the extracted garment image")
     category: str
     category_label: str = Field(..., alias="categoryLabel")
 

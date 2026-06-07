@@ -30,9 +30,8 @@ class WardrobeRunner(Protocol):
     def run_extract(
         self,
         *,
-        input_image_path: str,
+        input_image: Image.Image,
         prompt: str,
         garment_type: str,
-        output_path: str,
     ) -> WardrobeRunResult:
         pass

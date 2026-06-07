@@ -31,6 +31,18 @@ ai/
 uv run uvicorn app.main:app --reload
 ```
 
+`pyproject.toml` holds only the light web deps so local dev/CI stays fast. The heavy GPU stack
+(torch, vllm, transformers, diffusers, open_clip, …) is installed separately on the GPU pod.
+
+## GPU pod deployment
+
+Install + run on a RunPod network-volume pod (port `8000`, all 4 APIs in one process):
+
+- `scripts/install_gpu_stack.sh` — pinned GPU runtime stack (Python 3.12).
+- `scripts/validate_gpu_stack.py` — verifies the stack co-installs (incl. the transformers `<5`
+  gate for MiniCPM-V).
+- Full guide: `docs/deployment-setup.md`.
+
 ## Standard workflow
 
 ```bash

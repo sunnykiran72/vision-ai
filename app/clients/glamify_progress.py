@@ -24,29 +24,31 @@ class GlamifyProgressClient:
     def is_configured(self) -> bool:
         return bool(str(self._settings.glamify_api_base_url or "").strip())
 
-    def upload_input_background(
+    def upload_background(
         self,
         *,
         content: bytes,
         object_name: str,
+        container: str,
         content_type: str,
     ) -> Future[str]:
+        """Upload bytes to a specific Azure container off the request path; returns a Future URL."""
         return _UPLOAD_EXECUTOR.submit(
             self._upload_bytes,
             content=content,
             object_name=object_name,
+            container=container,
             content_type=content_type,
         )
 
-    def submit_output_and_progress_background(
+    def submit_progress_background(
         self,
         *,
-        bearer_token: str,
+        access_token: str,
         progress_id: str,
         input_url_future: Future[str],
-        output_content: bytes,
-        output_object_name: str,
-        output_content_type: str,
+        output_url: str,
+        prompt_description: str,
         classification: dict[str, Any],
         marqo: dict[str, Any],
         metadata: dict[str, Any],
@@ -57,17 +59,15 @@ class GlamifyProgressClient:
 
         def _job() -> None:
             try:
-                input_url = input_url_future.result()
-                output_url = self._upload_bytes(
-                    content=output_content,
-                    object_name=output_object_name,
-                    content_type=output_content_type,
+                input_url = input_url_future.result(
+                    timeout=wardrobe_constants.AZURE_UPLOAD_TIMEOUT_SECONDS,
                 )
                 self.create_or_update_progress(
-                    bearer_token=bearer_token,
+                    access_token=access_token,
                     progress_id=progress_id,
                     input_url=input_url,
                     output_url=output_url,
+                    prompt_description=prompt_description,
                     classification=classification,
                     marqo=marqo,
                     metadata=metadata,
@@ -80,10 +80,11 @@ class GlamifyProgressClient:
     def create_or_update_progress(
         self,
         *,
-        bearer_token: str,
+        access_token: str,
         progress_id: str,
         input_url: str,
         output_url: str,
+        prompt_description: str,
         classification: dict[str, Any],
         marqo: dict[str, Any],
         metadata: dict[str, Any],
@@ -93,6 +94,7 @@ class GlamifyProgressClient:
             "id": progress_id,
             "inputImage": input_url,
             "outputImage": output_url,
+            "promptDescription": prompt_description,
             "metadata": {
                 "classification": classification,
                 "marqo": marqo,
@@ -100,7 +102,7 @@ class GlamifyProgressClient:
             },
         }
         headers = {
-            "Authorization": bearer_token,
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
         timeout = max(5, int(wardrobe_constants.GLAMIFY_API_TIMEOUT_SECONDS))
@@ -113,6 +115,7 @@ class GlamifyProgressClient:
         *,
         content: bytes,
         object_name: str,
+        container: str,
         content_type: str,
     ) -> str:
         storage_client = AzureStorageClient(self._settings)
@@ -120,6 +123,7 @@ class GlamifyProgressClient:
             content,
             object_name=object_name,
             content_type=content_type,
+            container=container,
         )
 
 

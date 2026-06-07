@@ -17,6 +17,13 @@ class Settings(BaseSettings):
         alias="RESIDENT_RUNTIMES",
     )
 
+    # Single process-wide GPU execution queue shared by every GPU-backed feature.
+    system_queue_max_size: int = Field(default=8, alias="SYSTEM_QUEUE_MAX_SIZE")
+    system_queue_wait_timeout_seconds: int = Field(
+        default=30,
+        alias="SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS",
+    )
+
     jwt_access_secret: str = Field(default="", alias="JWT_ACCESS_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     azure_storage_connection_string: str = Field(
@@ -37,11 +44,20 @@ class Settings(BaseSettings):
     wardrobe_lora_top_path: str = Field(default="", alias="WARDROBE_LORA_TOP_PATH")
     wardrobe_lora_bottom_path: str = Field(default="", alias="WARDROBE_LORA_BOTTOM_PATH")
     wardrobe_lora_dress_path: str = Field(default="", alias="WARDROBE_LORA_DRESS_PATH")
-    wardrobe_queue_max_size: int = Field(default=8, alias="WARDROBE_QUEUE_MAX_SIZE")
-    wardrobe_work_root: str = Field(default="/tmp/glamify/wardrobe", alias="WARDROBE_WORK_ROOT")
-    wardrobe_storage_prefix: str = Field(
-        default="wardrobe_output/wardrobe",
-        alias="WARDROBE_STORAGE_PREFIX",
+    # MiniCPM-V garment captioner, loaded in-process via vLLM inside this service (no external
+    # service). Only the model pointer is environment-specific; all tuning lives in constants.
+    minicpm_model_path: str = Field(
+        default="openbmb/MiniCPM-V-4_5",
+        alias="MINICPM_MODEL_PATH",
+    )
+    # Separate private Azure containers for wardrobe input and output images.
+    azure_wardrobe_input_container: str = Field(
+        default="wardrobe-inputs",
+        alias="AZURE_WARDROBE_INPUT_CONTAINER",
+    )
+    azure_wardrobe_output_container: str = Field(
+        default="wardrobe-outputs",
+        alias="AZURE_WARDROBE_OUTPUT_CONTAINER",
     )
     glamify_api_base_url: str = Field(default="", alias="GLAMIFY_API_BASE_URL")
 
@@ -128,34 +144,60 @@ class Settings(BaseSettings):
 
 def validate_startup_settings(settings: Settings) -> None:
     missing_fields: list[str] = []
+    enabled_runtimes = get_enabled_resident_runtimes(settings)
 
     required_values = {
         "JWT_ACCESS_SECRET": settings.jwt_access_secret,
         "AZURE_STORAGE_CONNECTION_STRING": settings.azure_storage_connection_string,
         "AZURE_STORAGE_CONTAINER": settings.azure_storage_container,
-        "AI_TOOLKIT_ROOT": settings.ai_toolkit_root,
-        "QWEN_IMAGE_EDIT_MODEL_PATH": settings.qwen_image_edit_model_path,
-        "WARDROBE_LORA_TOP_PATH": settings.wardrobe_lora_top_path,
-        "WARDROBE_LORA_BOTTOM_PATH": settings.wardrobe_lora_bottom_path,
-        "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
-        "GLAMIFY_API_BASE_URL": settings.glamify_api_base_url,
     }
+    path_fields: dict[str, str] = {}
 
-    if settings.tryon_use_specialists:
-        enabled_specialists = get_enabled_tryon_specialists(settings)
+    if "wardrobe" in enabled_runtimes:
+        # Wardrobe extraction runs on the diffusers QwenImageEditPlus backend, with MiniCPM
+        # captioning delegated to the vLLM webapp and input/output stored in Azure.
         required_values.update(
             {
+                "QWEN_IMAGE_EDIT_MODEL_PATH": settings.qwen_image_edit_model_path,
+                "WARDROBE_LORA_TOP_PATH": settings.wardrobe_lora_top_path,
+                "WARDROBE_LORA_BOTTOM_PATH": settings.wardrobe_lora_bottom_path,
+                "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
+                "MINICPM_MODEL_PATH": settings.minicpm_model_path,
+                "AZURE_WARDROBE_INPUT_CONTAINER": settings.azure_wardrobe_input_container,
+                "AZURE_WARDROBE_OUTPUT_CONTAINER": settings.azure_wardrobe_output_container,
+                "GLAMIFY_API_BASE_URL": settings.glamify_api_base_url,
+            },
+        )
+        path_fields.update(
+            {
+                "QWEN_IMAGE_EDIT_MODEL_PATH": settings.qwen_image_edit_model_path,
+                "WARDROBE_LORA_TOP_PATH": settings.wardrobe_lora_top_path,
+                "WARDROBE_LORA_BOTTOM_PATH": settings.wardrobe_lora_bottom_path,
+                "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
+            },
+        )
+
+    if "tryon" in enabled_runtimes:
+        # Try-on still runs on the AI-Toolkit backend.
+        required_values["AI_TOOLKIT_ROOT"] = settings.ai_toolkit_root
+        required_values["QWEN_IMAGE_EDIT_MODEL_PATH"] = settings.qwen_image_edit_model_path
+        path_fields["AI_TOOLKIT_ROOT"] = settings.ai_toolkit_root
+        path_fields["QWEN_IMAGE_EDIT_MODEL_PATH"] = settings.qwen_image_edit_model_path
+        if settings.tryon_use_specialists:
+            enabled_specialists = get_enabled_tryon_specialists(settings)
+            specialist_paths = {
                 f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
                     settings,
                     specialist,
                 )
                 for specialist in enabled_specialists
-            },
-        )
-    else:
-        required_values["TRYON_LORA_PATH"] = settings.tryon_lora_path
+            }
+            required_values.update(specialist_paths)
+            path_fields.update(specialist_paths)
+        else:
+            required_values["TRYON_LORA_PATH"] = settings.tryon_lora_path
+            path_fields["TRYON_LORA_PATH"] = settings.tryon_lora_path
 
-    enabled_runtimes = get_enabled_resident_runtimes(settings)
     if "upscale" in enabled_runtimes:
         required_values.update(
             {
@@ -171,29 +213,8 @@ def validate_startup_settings(settings: Settings) -> None:
 
     if missing_fields:
         raise RuntimeError(
-            "Missing required startup configuration: " + ", ".join(missing_fields),
+            "Missing required startup configuration: " + ", ".join(sorted(set(missing_fields))),
         )
-
-    path_fields = {
-        "AI_TOOLKIT_ROOT": settings.ai_toolkit_root,
-        "QWEN_IMAGE_EDIT_MODEL_PATH": settings.qwen_image_edit_model_path,
-        "WARDROBE_LORA_TOP_PATH": settings.wardrobe_lora_top_path,
-        "WARDROBE_LORA_BOTTOM_PATH": settings.wardrobe_lora_bottom_path,
-        "WARDROBE_LORA_DRESS_PATH": settings.wardrobe_lora_dress_path,
-    }
-    if settings.tryon_use_specialists:
-        enabled_specialists = get_enabled_tryon_specialists(settings)
-        path_fields.update(
-            {
-                f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
-                    settings,
-                    specialist,
-                )
-                for specialist in enabled_specialists
-            },
-        )
-    else:
-        path_fields["TRYON_LORA_PATH"] = settings.tryon_lora_path
 
     invalid_paths: list[str] = []
     for field_name, raw_path in path_fields.items():
@@ -202,7 +223,7 @@ def validate_startup_settings(settings: Settings) -> None:
 
     if invalid_paths:
         raise RuntimeError(
-            "Startup path configuration does not exist: " + ", ".join(invalid_paths),
+            "Startup path configuration does not exist: " + ", ".join(sorted(set(invalid_paths))),
         )
 
 

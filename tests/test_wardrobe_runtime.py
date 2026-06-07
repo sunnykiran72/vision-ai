@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.clients.qwen_wardrobe_aitk import QwenWardrobeAitkClient
-from app.runtime import wardrobe_runtime
+from app.runtime import system_coordinator, wardrobe_runtime
 
 
 def test_wardrobe_status_does_not_force_runtime_load() -> None:
@@ -19,7 +19,6 @@ def test_wardrobe_status_does_not_force_runtime_load() -> None:
 
 def _runner_args(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "ai_toolkit_root": "/toolkit",
         "qwen_image_edit_model_path": "/model",
         "wardrobe_lora_top_path": "/top.safetensors",
         "wardrobe_lora_bottom_path": "/bottom.safetensors",
@@ -44,12 +43,12 @@ def test_wardrobe_runner_cache_changes_with_runtime_fields() -> None:
     assert runner_a is not runner_c
 
 
-def test_wardrobe_coordinator_cache_depends_only_on_queue_settings() -> None:
-    wardrobe_runtime._get_wardrobe_execution_coordinator_cached.cache_clear()
+def test_system_coordinator_is_shared_singleton() -> None:
+    system_coordinator._get_system_execution_coordinator_cached.cache_clear()
 
-    coordinator_a = wardrobe_runtime._get_wardrobe_execution_coordinator_cached(8)
-    coordinator_b = wardrobe_runtime._get_wardrobe_execution_coordinator_cached(8)
-    coordinator_c = wardrobe_runtime._get_wardrobe_execution_coordinator_cached(4)
+    coordinator_a = system_coordinator._get_system_execution_coordinator_cached(8, 30)
+    coordinator_b = system_coordinator._get_system_execution_coordinator_cached(8, 30)
+    coordinator_c = system_coordinator._get_system_execution_coordinator_cached(4, 30)
 
     assert coordinator_a is coordinator_b
     assert coordinator_a is not coordinator_c

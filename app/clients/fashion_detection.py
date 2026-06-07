@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import logging
 import threading
+from functools import lru_cache
 from typing import Any
 
 from PIL import Image
@@ -10,6 +11,11 @@ from PIL import Image
 from app.constants import wardrobe as wardrobe_constants
 
 logger = logging.getLogger("glamify-ai")
+
+
+@lru_cache(maxsize=1)
+def get_fashion_detection_client() -> FashionDetectionClient:
+    return FashionDetectionClient()
 
 
 class FashionDetectionRuntimeError(RuntimeError):
@@ -36,6 +42,9 @@ class FashionDetectionClient:
     @property
     def is_loaded(self) -> bool:
         return self._processor is not None and self._model is not None
+
+    def ensure_ready(self) -> None:
+        self._ensure_ready()
 
     def has_garment(self, image: Image.Image) -> bool:
         return bool(self.detect(image))

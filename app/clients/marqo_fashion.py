@@ -4,6 +4,7 @@ import importlib
 import logging
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from PIL import Image
@@ -12,6 +13,11 @@ from app.constants import wardrobe as wardrobe_constants
 from app.constants.wardrobe import MarqoCategoryCandidate
 
 logger = logging.getLogger("glamify-ai")
+
+
+@lru_cache(maxsize=1)
+def get_marqo_fashion_client() -> MarqoFashionSiglipClient:
+    return MarqoFashionSiglipClient()
 
 
 class MarqoClassificationRuntimeError(RuntimeError):
@@ -56,6 +62,9 @@ class MarqoFashionSiglipClient:
             and self._image_preprocess is not None
             and self._tokenizer is not None
         )
+
+    def ensure_ready(self) -> None:
+        self._ensure_ready()
 
     def classify(self, *, image: Image.Image, garment_type: str) -> MarqoClassificationResult:
         candidates = wardrobe_constants.MARQO_CANDIDATES_BY_TYPE.get(str(garment_type), ())

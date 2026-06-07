@@ -5,7 +5,7 @@ from io import BytesIO
 
 from PIL import Image
 
-from app.clients.minicpm_v46 import MiniCPMDescription
+from app.clients.minicpm_vllm import MiniCPMCaption
 from app.constants import http_status
 from app.models.minicpm import MiniCPMGarmentRequest
 from app.services import minicpm as minicpm_service
@@ -20,24 +20,19 @@ class FakeMiniCPMClient:
         *,
         image: Image.Image,
         prompt: str,
-    ) -> MiniCPMDescription:
+    ) -> MiniCPMCaption:
         assert image.size == (512, 512)
         self.prompt = prompt
-        return MiniCPMDescription(
+        return MiniCPMCaption(
             text="cropped top with a square neckline and fitted torso construction.",
             latency_ms=123,
-            model_id="openbmb/MiniCPM-V-4.6",
-            device="cuda:0",
-            dtype="torch.bfloat16",
-            downsample_mode="16x",
-            max_new_tokens=160,
-            max_slice_nums=36,
+            model_id="openbmb/MiniCPM-V-4_5",
         )
 
 
 def test_minicpm_garment_request_uses_default_prompt(monkeypatch) -> None:
     fake_client = FakeMiniCPMClient()
-    monkeypatch.setattr(minicpm_service, "get_minicpm_v46_client", lambda: fake_client)
+    monkeypatch.setattr(minicpm_service, "get_minicpm_client", lambda: fake_client)
 
     response = minicpm_service.run_minicpm_garment_request(
         MiniCPMGarmentRequest(
@@ -49,16 +44,16 @@ def test_minicpm_garment_request_uses_default_prompt(monkeypatch) -> None:
     assert response.status == http_status.OK
     assert response.data is not None
     assert response.data.type == "top"
-    assert response.data.model == "openbmb/MiniCPM-V-4.6"
+    assert response.data.model == "openbmb/MiniCPM-V-4_5"
     assert response.data.description.startswith("cropped top")
-    assert "Describe only the TOP garment" in response.data.prompt
+    assert "Describe ONLY the top garment" in response.data.prompt
     assert fake_client.prompt == response.data.prompt
     assert response.data.metadata["prompt_source"] == "default"
 
 
 def test_minicpm_garment_request_accepts_prompt_override(monkeypatch) -> None:
     fake_client = FakeMiniCPMClient()
-    monkeypatch.setattr(minicpm_service, "get_minicpm_v46_client", lambda: fake_client)
+    monkeypatch.setattr(minicpm_service, "get_minicpm_client", lambda: fake_client)
 
     response = minicpm_service.run_minicpm_garment_request(
         MiniCPMGarmentRequest(

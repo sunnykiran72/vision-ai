@@ -97,7 +97,10 @@ print(f"  ai_toolkit_root={settings.ai_toolkit_root}")
 print(f"  wardrobe_lora_top_path={settings.wardrobe_lora_top_path}")
 print(f"  wardrobe_lora_bottom_path={settings.wardrobe_lora_bottom_path}")
 print(f"  wardrobe_lora_dress_path={settings.wardrobe_lora_dress_path}")
-print(f"  wardrobe_queue_max_size={settings.wardrobe_queue_max_size}")
+print(f"  minicpm_model_path={settings.minicpm_model_path}")
+print(f"  azure_wardrobe_input_container={settings.azure_wardrobe_input_container}")
+print(f"  azure_wardrobe_output_container={settings.azure_wardrobe_output_container}")
+print(f"  system_queue_max_size={settings.system_queue_max_size}")
 print(f"  glamify_api_base_url={settings.glamify_api_base_url}")
 PY
 

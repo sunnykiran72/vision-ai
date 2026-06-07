@@ -1,0 +1,24 @@
+1. on the whole vision api the i need it to implement the auth verificaiton  as the middleware . we shouldn't need to 
+include every api as we have 4 core api at the moment right so we don't need to incldue on every api  to do this instead on
+core  fastapi one we need to implemeent 
+
+for example take the "/Users/kiran/Documents/github/clients/glamify/glamify_backend/api/src/index.ts" example for the HONO JS implementation
+"app.use("*", authorization);" 
+
+we have kept that for every api request it should go to the authrosation function and over ther  we ahev the public path and private paths as well which we defined the same 
+but over there we are keeping the data on it state right and we using that state directly inside the api calls  as 
+"const userId = c.var.payload.userId;"   (/Users/kiran/Documents/github/clients/glamify/glamify_backend/api/src/routes/home/home.handlers.ts) for reference 
+
+so if we use we are not handling the auth ovee the every api instead the api handlers will take directly the userid and we also need to store the jwt actual token as well as we are passing
+to the  other apis in the middle as well right. 
+
+i have very important doubt over here as well . as we are maintaing the userid and the jwt token on teh state right and it's a long running server so if we get simultaneous requests at same 
+time then it might override i guess ? for example when the first request came we have the userid and the token and we start running the inference and in the menahiwl if we got teh new requrest
+it might update the  userid and teh token right so it might cahagne the values and when the inference completed it will use the new userid and token right ? 
+
+so the auth and verificaiton adn how we passing teh userid and token is so crucial and make it ina proffesional way of managing th things without overlapping to any user on the long running server
+
+so the first stage should be auth verificaiton from the middleware not from the every api handler which i'm thinking over here.
+
+2. on the wardrobe constant variable use seed as 7777 , steps : 10 , etc..,  and i hae udpated few changes so sycn them properly on the app/constants/wardrobe.py one 
+

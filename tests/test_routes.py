@@ -20,28 +20,29 @@ def test_wardrobe_route_exists(auth_header: dict[str, str]) -> None:
     assert response.json()["data"] is None
 
 
-def test_wardrobe_route_uses_structured_request(
+def test_wardrobe_route_uses_multipart_request(
     monkeypatch: MonkeyPatch,
     auth_header: dict[str, str],
     auth_user_id: str,
 ) -> None:
     def fake_run_wardrobe_request(
-        payload,
+        image_bytes: bytes,
         *,
+        garment_type,
         user_id: str,
-        bearer_token: str,
+        access_token: str,
     ) -> WardrobeAnalyzeResponse:
-        assert payload.type == "top"
-        assert payload.prompt == "GlamTopExt. custom descriptor."
+        assert image_bytes == b"image-bytes"
+        assert garment_type == "top"
         assert user_id == auth_user_id
-        assert bearer_token.startswith("Bearer ")
+        assert access_token and not access_token.startswith("Bearer ")
         return WardrobeAnalyzeResponse(
             status=200,
             message="",
             data=WardrobeAnalyzeResult(
                 id="a9178f00-2d78-47c3-928d-80a28f6e082e",
                 type="top",
-                image="jpeg-base64",
+                image="https://blob.example.com/output.jpg",
                 category="t_shirts",
                 categoryLabel="T-shirt",
             ),
@@ -52,16 +53,14 @@ def test_wardrobe_route_uses_structured_request(
     response = client.post(
         "/v1/wardrobe",
         headers=auth_header,
-        json={
-            "image": "base64",
-            "type": "top",
-            "prompt": "GlamTopExt. custom descriptor.",
-        },
+        files={"image": ("garment.png", b"image-bytes", "image/png")},
+        data={"type": "top"},
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["category"] == "t_shirts"
     assert response.json()["data"]["categoryLabel"] == "T-shirt"
+    assert response.json()["data"]["image"] == "https://blob.example.com/output.jpg"
     assert response.json()["data"]["type"] == "top"
 
 

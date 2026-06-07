@@ -34,6 +34,7 @@ async def authorization_middleware(
     token = auth_header.split(" ", 1)[1].strip() if auth_header.startswith("Bearer ") else ""
     if is_public_path and not token:
         request.state.auth_payload = None
+        request.state.access_token = ""
         return await call_next(request)
     if not token:
         return _json_unauthorized()
@@ -45,7 +46,11 @@ async def authorization_middleware(
             settings.jwt_access_secret,
             algorithms=[settings.jwt_algorithm],
         )
+        # Auth is verified once here. The payload and raw token are stored on the per-request
+        # state object (one Request per HTTP request), so concurrent requests never share or
+        # overwrite each other's identity, even across long-running inference.
         request.state.auth_payload = AuthPayload.model_validate(decoded)
+        request.state.access_token = token
     except (InvalidTokenError, ValueError):
         return _json_unauthorized()
 

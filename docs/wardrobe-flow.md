@@ -5,17 +5,16 @@
 This document describes the implemented `/v1/wardrobe` flow in the Python AI service.
 
 It covers:
-- JSON request and response contract
+- multipart request and JSON response contract
 - authentication and user isolation
 - image validation and preprocessing
 - garment verification
-- AI-Toolkit extraction runtime
+- MiniCPM garment description
+- diffusers extraction runtime
 - Marqo category classification
 - Azure storage
 - background Glamify progress sync
 - all major success and failure cases
-
-This is the current implementation, not the old multipart `/analyze` flow.
 
 ## Entry Point
 
@@ -25,21 +24,16 @@ Route:
 Endpoint:
 - `POST /v1/wardrobe`
 
-Request body:
+Request: `multipart/form-data`
 
-```json
-{
-  "image": "<raw-base64-or-data-url>",
-  "type": "top"
-}
-```
+| Field | Type | Description |
+| --- | --- | --- |
+| `image` | file | PNG or JPEG garment image |
+| `type` | form text | `top`, `bottom`, or `dress` |
 
-Allowed `type` values:
-- `top`
-- `bottom`
-- `dress`
+The request is multipart only. It does not accept JSON, base64, or a free-form `prompt` override.
 
-Success response:
+Success response (JSON):
 
 ```json
 {
@@ -48,12 +42,14 @@ Success response:
   "data": {
     "id": "89bd1674-0296-4652-8505-092d677b93a5",
     "type": "bottom",
-    "image": "<raw-jpeg-base64>",
+    "image": "https://<account>.blob.core.windows.net/wardrobe-outputs/<user_id>/<job_id>/output.jpg",
     "category": "track_pants",
     "categoryLabel": "Track pants"
   }
 }
 ```
+
+`data.image` is a **public URL** to the uploaded extracted garment (JPEG), not base64.
 
 Error response shape:
 
@@ -65,41 +61,47 @@ Error response shape:
 }
 ```
 
-The API is JSON-only. It does not accept multipart `file`, multipart `image`, `debug`, or other legacy `/analyze` fields.
-
 ## Authentication And User Identity
 
 JWT verification happens before the route handler in:
 - `app/middleware/auth.py`
 
-The middleware:
-1. reads `Authorization: Bearer <token>`
-2. verifies the token with `JWT_ACCESS_SECRET`
-3. validates the decoded payload as `AuthPayload`
-4. stores the auth payload on `request.state.auth_payload`
+Auth is verified once, globally, in the HTTP middleware (`app.middleware("http")(...)`) — not in
+each handler. The middleware:
+1. allows public path prefixes (`/health`, `/docs`, `/redoc`, `/openapi.json`, `/tools`)
+2. reads `Authorization: Bearer <token>`
+3. verifies the token with `JWT_ACCESS_SECRET`
+4. validates the decoded payload as `AuthPayload`
+5. stores the payload on `request.state.auth_payload` **and** the raw token on
+   `request.state.access_token`
 
-The route receives the already-validated auth payload through:
-- `app/dependencies/auth.py`
+Handlers read identity directly via dependencies in `app/dependencies/auth.py`:
+- `CurrentAuth` -> `AuthPayload` (so `current_user.user_id`)
+- `CurrentAccessToken` -> the raw verified JWT (passed downstream to the Glamify backend)
 
-The route passes two auth-related values into the service:
-- `user_id` from the verified token
-- the original `Authorization` header for background Glamify progress sync
+### Concurrency safety (important)
 
-The request body cannot choose a user id.
+`request.state` lives on the per-request Starlette `Request` object — there is one `Request` per
+HTTP request, never a shared module-level/global. So simultaneous requests cannot overwrite each
+other's `user_id` or token, even while a long-running inference is in flight.
+
+The handler reads `user_id` and `access_token` from state and passes them as **function
+arguments** into `run_wardrobe_request(...)` (executed in a threadpool). Those values are bound to
+that call's stack frame for its entire lifetime, so the response always uses the identity of the
+request that started it. The request body cannot choose a user id.
 
 ## Route Flow
 
 The route is intentionally thin.
 
 It does:
-1. validates JSON into `WardrobeAnalyzeRequest`
+1. accepts the multipart `image` file and `type` form field
 2. resolves `CurrentAuth`
-3. calls `run_wardrobe_request(...)` in a threadpool
+3. reads the image bytes and calls `run_wardrobe_request(...)` in a threadpool
 4. sets the HTTP status code to match `response.status`
 
 The route does not:
-- decode base64
-- resize images
+- validate or resize images
 - run model inference
 - upload to Azure
 - call Glamify backend
@@ -119,28 +121,43 @@ Current values:
 | Garment detector | `yainage90/fashion-object-detection` |
 | Detector threshold | `0.25` |
 | Marqo classifier | `Marqo/marqo-fashionSigLIP` |
-| Marqo confidence threshold | `0.25` |
+| Marqo confidence threshold | `0.20` |
 | Marqo top-k metadata | `5` |
 | LoRA rank | `16` |
 | LoRA alpha | `16` |
-| Queue wait timeout | `30s` |
 | Glamify progress timeout | `20s` |
+| Azure upload join timeout | `60s` |
 | Output size | `832x1248` |
-| Seed | `43` |
-| Steps | `15` |
-| Guidance scale | `1.0` |
-| Guidance rescale | `0.0` |
-| Network multiplier | `1.0` |
-| Sampler | `flowmatch` |
-| CFG norm | `false` |
+| Seed | `7777` (`GENERATION_SEED`) |
+| Steps | `10` (`GENERATION_STEPS`) |
+| LoRA scale | `1.0` (`GENERATION_NETWORK_MULTIPLIER`) |
+| true_cfg_scale | `1.0` (`GENERATION_TRUE_CFG_SCALE`) |
 
-Static prompts:
+MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 
-| Type | Prompt |
+| Concern | Value |
 | --- | --- |
-| `top` | `GlamTopExt. Extract top wear as a standalone product.` |
-| `bottom` | `GlamBtmExt. Extract bottom wear as a standalone product.` |
-| `dress` | `GlamDressExt. Extract dress as a standalone product.` |
+| GPU memory utilization | `0.27` (`MINICPM_GPU_MEMORY_UTILIZATION`) |
+| Max tokens | `90` (`MINICPM_MAX_TOKENS`) |
+| Max slice nums | `4` (`MINICPM_MAX_SLICE_NUMS`) |
+| Max model len | `4096` (`MINICPM_MAX_MODEL_LEN`) |
+| Temperature | `0.0` (`MINICPM_TEMPERATURE`) |
+| dtype | `bfloat16` (`MINICPM_DTYPE`) |
+
+The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. The legacy
+`GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
+the file for the AI-Toolkit try-on path and are not used by wardrobe.
+
+Static prompts (all in `app/constants/wardrobe.py`):
+
+- `MINICPM_PROMPT_BY_TYPE[top|bottom|dress]` — the MiniCPM garment-description prompt per type.
+- `QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE[top|bottom|dress]` — the Qwen extraction template with a
+  `{caption}` slot filled by the MiniCPM caption. Only the leading trigger sentence differs:
+  `GlamTopExt. Extract top wear as a standalone product.` /
+  `GlamBtmExt. Extract bottom wear as a standalone product.` /
+  `GlamDressExt. Extract dress as a standalone product.`
+- `PROMPT_BY_TYPE[...]` — the short trigger-only prompts, used by the diffusers parity test
+  endpoint and engine warmup, not by the live flow.
 
 These values are code constants, not environment variables. Environment-specific endpoints and file paths live in runtime configuration.
 
@@ -153,17 +170,22 @@ Important environment variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `AI_TOOLKIT_ROOT` | AI-Toolkit checkout path |
-| `QWEN_IMAGE_EDIT_MODEL_PATH` | Qwen Image Edit model path |
-| `WARDROBE_LORA_TOP_PATH` | Top extraction LoRA checkpoint |
-| `WARDROBE_LORA_BOTTOM_PATH` | Bottom extraction LoRA checkpoint |
-| `WARDROBE_LORA_DRESS_PATH` | Dress extraction LoRA checkpoint |
-| `WARDROBE_QUEUE_MAX_SIZE` | GPU queue size, default `8` |
-| `WARDROBE_WORK_ROOT` | Request-local temp directory root |
-| `WARDROBE_STORAGE_PREFIX` | Azure blob prefix |
+| `QWEN_IMAGE_EDIT_MODEL_PATH` | Qwen Image Edit model path (e.g. `/mnt/models/qwen-image-edit-2511`) |
+| `WARDROBE_LORA_TOP_PATH` | Top extraction LoRA checkpoint (top 23k) |
+| `WARDROBE_LORA_BOTTOM_PATH` | Bottom extraction LoRA checkpoint (bottom 30k) |
+| `WARDROBE_LORA_DRESS_PATH` | Dress extraction LoRA checkpoint (dress 27k) |
+| `MINICPM_MODEL_PATH` | MiniCPM-V model id or local path, loaded in-process via vLLM |
+| `AZURE_WARDROBE_INPUT_CONTAINER` | Private container for input images (default `wardrobe-inputs`) |
+| `AZURE_WARDROBE_OUTPUT_CONTAINER` | Container for output images (default `wardrobe-outputs`) |
+| `SYSTEM_QUEUE_MAX_SIZE` | System-wide GPU queue size, default `8` |
+| `SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS` | System-wide queue wait timeout, default `30` |
 | `GLAMIFY_API_BASE_URL` | Environment-specific Glamify backend base URL |
 
-Startup validation requires the Qwen model path, AI-Toolkit root, Azure settings, wardrobe LoRA paths, and `GLAMIFY_API_BASE_URL`.
+The wardrobe backend is diffusers, so `AI_TOOLKIT_ROOT` is **not** required for wardrobe; it is
+only validated when the `tryon` runtime is resident. When the `wardrobe` runtime is resident,
+startup validation requires the Qwen model path, `MINICPM_MODEL_PATH`, the input/output
+containers, Azure settings, the three wardrobe LoRA paths,
+and `GLAMIFY_API_BASE_URL`.
 
 ## Service Flow
 
@@ -173,28 +195,18 @@ Main service:
 Entrypoint:
 - `run_wardrobe_request(...)`
 
-### Step 1: Resolve Type And Prompt
+### Step 1: Resolve Type
 
-The request `type` is a Pydantic enum.
+The form `type` is a Pydantic enum (`top`, `bottom`, `dress`). It selects the MiniCPM prompt, the
+Qwen extraction template, and the extraction LoRA. No free-form prompt is accepted from the user;
+the extraction prompt is built from the MiniCPM caption (Step 5).
 
-The service maps it to one static prompt:
-- `top` -> top extraction prompt
-- `bottom` -> bottom extraction prompt
-- `dress` -> dress extraction prompt
+### Step 2: Load The Uploaded Image
 
-No free-form prompt is accepted from the user.
-
-### Step 2: Decode Base64 Image
-
-The service accepts either:
-- raw base64
-- data URL base64, such as `data:image/png;base64,...`
-
-Validation rules:
-- input must decode as base64
-- decoded bytes must open as an image through Pillow
-- image format must be PNG or JPEG
-- image is converted to RGB
+The service reads the multipart `image` file bytes and:
+- opens them as an image through Pillow
+- requires the format to be PNG or JPEG
+- converts to RGB
 
 If this fails, response is `422`.
 
@@ -220,9 +232,10 @@ If either dimension is below `350px`, response is `422`.
 
 The service resizes large images before detection and extraction.
 
-Rules:
-- if longest edge is `<= 1024`, keep the image size
-- if longest edge is `> 1024`, scale the image down so longest edge is `1024`
+Rules (`resize_input_for_model`, shared with the diffusers engine):
+- if longest edge is `<= 1024`, keep the image size unchanged (no rounding)
+- if longest edge is `> 1024`, scale the longest edge down to `1024` and round the other edge to
+  the nearest multiple of 16
 - preserve aspect ratio
 - use Pillow `Image.Resampling.LANCZOS`
 
@@ -233,8 +246,11 @@ Examples:
 | `512x768` | `512x768` |
 | `1600x1200` | `1024x768` |
 | `1200x1600` | `768x1024` |
+| `2000x1000` | `1024x512` |
 
-The preprocessed image is saved as request-local `input.jpg`.
+The preprocessed image stays **in memory** (no local file). The same object is fed to the fashion
+detector, MiniCPM, and the diffusers engine, and is the exact image uploaded to Azure as the
+wardrobe input (see Input Image Upload).
 
 ## Garment Verification
 
@@ -266,99 +282,128 @@ If no garment is detected, response is:
 }
 ```
 
-## Request-Local Workspace
+## Input Image Upload
 
-Every request gets a generated UUID job id.
-
-Workspace shape:
+Only after the detector confirms a garment, the service generates the `job_id` (UUID) and starts
+uploading the **preprocessed image** (the in-memory LANCZOS-resized JPEG, not the raw upload) to
+the private `wardrobe-inputs` container:
 
 ```text
-<WARDROBE_WORK_ROOT>/<job_id>/
-  input.jpg
-  output.jpg
+<AZURE_WARDROBE_INPUT_CONTAINER>/<user_id>/<job_id>/input.jpg
 ```
 
-The request body never controls:
-- job id
-- directory name
-- storage path
-- output filename
+Key behavior:
+- it runs **strictly in the background** (a `Future`) and never blocks the MiniCPM -> Qwen -> Marqo
+  pipeline; the request does not wait on it
+- the returned URL is held in a temporary `Future` and is read only later, inside the background
+  Glamify progress sync, where it is sent as `inputImage`
+- this is the image stored as the user's wardrobe **input** (paired with the extracted output)
+- if it fails, the error is logged in the background and the API response is unaffected
 
-The service deletes the request-local directory in `finally`, for both success and failure after the directory exists.
+It is started here (post-detection) rather than earlier so a rejected, garment-less image never
+produces a stored input.
+
+## MiniCPM Garment Description
+
+Client:
+- `app/clients/minicpm_vllm.py` (`openbmb/MiniCPM-V-4_5`), shared singleton `get_minicpm_client()`.
+
+MiniCPM-V is loaded **in-process via vLLM inside this service** — there is no external model
+server or separate port. It is a faithful port of the validated reference engine: vLLM loads the
+model in this process and coexists on one GPU beside the resident Qwen model, capped via
+`MINICPM_GPU_MEMORY_UTILIZATION`, running `enforce_eager=True` and `max_num_seqs=1`. Only the
+model pointer is environment-specific (`MINICPM_MODEL_PATH`); all tuning is in
+`app/constants/wardrobe.py`.
+
+After the detector gate, the preprocessed image and the per-type `MINICPM_PROMPT_BY_TYPE[type]`
+prompt are passed to MiniCPM, which returns one factual caption describing only the requested
+garment.
+
+The caption is used two ways:
+1. it fills the `{caption}` slot of `QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE[type]` to build the Qwen
+   extraction prompt;
+2. it is sent to the Glamify backend as `promptDescription`.
+
+MiniCPM runs through the same system GPU coordinator as detection and extraction, and is
+warm-loaded at startup (see Health And Warmup). If MiniCPM fails, response is `500`.
+
+## No Local Workspace
+
+Every request gets a generated UUID `job_id`. This id is the **final wardrobe id** and the storage
+path key, but the request does **not** write to local disk. The preprocessed input image (a PIL
+object) is passed directly to MiniCPM and Qwen in memory, and the JPEG bytes are uploaded to Azure
+directly. The request body never controls the job id or storage path.
 
 ## Runtime Execution
 
 Runtime files:
 - `app/runtime/wardrobe_runtime.py`
-- `app/clients/qwen_wardrobe_aitk.py`
+- `app/clients/qwen_diffusers_engine.py`
 - `app/runtime/coordinator.py`
 
-The wardrobe runtime uses AI-Toolkit directly.
+The wardrobe runtime uses **diffusers** directly, not AI-Toolkit. It is a faithful port of the
+validated standalone diffusers tester. See `docs/diffusers-inference-parity.md` for the full
+parity spec and the reference source.
 
-Model architecture:
-- `qwen_image_edit`
+Pipeline:
+- `diffusers.QwenImageEditPlusPipeline`, bf16, resident on `cuda`.
 
-This is intentional. Wardrobe extraction has one control image:
-- `ctrl_img = garment_input`
+Wardrobe extraction has one control image: the garment input.
 
-It does not use `qwen_image_edit_plus`, which is reserved for two-control flows such as try-on.
-
-Generation config:
-
-```python
-GenerateImageConfig(
-    prompt=<static category prompt>,
-    width=832,
-    height=1248,
-    negative_prompt="",
-    seed=43,
-    guidance_scale=1.0,
-    guidance_rescale=0.0,
-    num_inference_steps=15,
-    network_multiplier=1.0,
-    output_path=<job_dir>/output.jpg,
-    output_ext="jpg",
-    ctrl_img=<job_dir>/input.jpg,
-    do_cfg_norm=False,
-)
-```
-
-Generation runs through:
+Generation core:
 
 ```python
-pipeline.generate_images([config], sampler="flowmatch")
+generator = torch.Generator(device="cuda").manual_seed(43)
+pipe.set_adapters([garment_type], [1.0])
+with torch.inference_mode():
+    pipe(
+        image=<preprocessed garment>,   # single control image
+        prompt=<static category prompt>,
+        true_cfg_scale=1.0,
+        num_inference_steps=15,
+        height=1248,
+        width=832,
+        generator=generator,
+    ).images[0]
 ```
+
+Steps, seed, LoRA scale, `true_cfg_scale`, and output size are constants in
+`app/constants/wardrobe.py` (`GENERATION_STEPS`, `GENERATION_SEED`,
+`GENERATION_NETWORK_MULTIPLIER`, `GENERATION_TRUE_CFG_SCALE`, `OUTPUT_WIDTH`, `OUTPUT_HEIGHT`).
 
 ## LoRA Loading And Switching
 
-The runtime loads Qwen once and keeps it resident.
+The engine loads the Qwen base pipeline once and keeps it resident.
 
-It then prepares one LoRA network and caches three state dicts:
+Unlike the lazy-loading tester (which carries ~18 LoRAs), wardrobe carries only three, so all
+three are loaded **eagerly during warmup, before the API serves requests**:
 - `top`
 - `bottom`
 - `dress`
 
+Each LoRA is loaded via `load_lora_weights(remapped_state_dict, adapter_name=category)`, where the
+AI-Toolkit `diffusion_model.*` keys are remapped onto the diffusers `transformer.*` namespace.
+
 On request:
 1. resolve requested type
-2. load the cached state dict into the active network
-3. call `_update_torch_multiplier()`
-4. run generation
+2. `set_adapters([type], [lora_scale])`
+3. run generation
 
-This avoids loading the full Qwen model or reading checkpoint files on every request.
-
-If the requested LoRA checkpoint is missing or the AI-Toolkit runtime cannot load, response is `500`.
+If the requested LoRA checkpoint is missing or the diffusers runtime cannot load, response is `500`.
 
 ## Queue And Concurrency
 
-Wardrobe uses the shared bounded execution coordinator:
-- `app/runtime/coordinator.py`
+GPU work runs behind **one system-wide coordinator** (`app/runtime/system_coordinator.py`,
+built on `app/runtime/coordinator.py`), not a per-feature queue. Wardrobe and try-on run the same
+heavy Qwen weights on one GPU, so a single queue is correct.
 
 Current behavior:
-- queue size is controlled by `WARDROBE_QUEUE_MAX_SIZE`
-- queue wait timeout is the constant `QUEUE_WAIT_TIMEOUT_SECONDS`
-- detector, Qwen generation, and Marqo classification run behind the same coordinator
+- queue size is controlled by `SYSTEM_QUEUE_MAX_SIZE`
+- queue wait timeout by `SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS`
+- detector, MiniCPM caption, Qwen generation, and Marqo classification all run behind it
 
-This prevents GPU-heavy wardrobe work from overlapping in one process and prevents multiple wardrobe requests from mutating the active LoRA network at the same time.
+This serializes GPU-heavy work in one process and prevents concurrent requests from mutating the
+active LoRA at the same time.
 
 Current error mapping:
 - queue full -> `503`
@@ -369,18 +414,15 @@ The public response still follows the required envelope with `data: null`.
 ## Output Handling
 
 After generation:
-1. runtime returns a PIL image and metadata
-2. service converts the image to RGB
-3. service saves `output.jpg` in the job directory
-4. service later returns the image as raw JPEG base64
+1. the engine returns a PIL image directly (no local file)
+2. the service encodes it to JPEG bytes in memory
+3. the output upload to the `wardrobe-outputs` container is **started immediately** (background),
+   so it overlaps Marqo classification (saving ~1s)
+4. after Marqo, the service **joins** the output upload to obtain the URL and returns it
 
-Returned `data.image` is raw base64, not a data URL.
-
-Consumers should treat it as JPEG bytes:
-
-```text
-base64_decode(data.image) -> image/jpeg
-```
+Returned `data.image` is the Azure blob URL of the extracted garment JPEG. The input upload (to
+`wardrobe-inputs`) stays fully in the background; only the output upload is joined because its URL
+is part of the response.
 
 ## Marqo Category Classification
 
@@ -422,49 +464,33 @@ These candidate groups come from the live backend category lookup and the older 
 
 Marqo scores labels with image/text similarity and softmax probability.
 
-The best category is accepted only if:
-- score is `>= 0.25`
-- category key is non-empty
+Category resolution (`_resolve_wardrobe_category`):
+- if Marqo returns a category key + label, it is used; `source` is `marqo` when the score clears
+  `0.25`, otherwise `marqo_low_confidence` (the ranked match is still returned)
+- if Marqo returns no usable category, the first candidate for the requested type is used with
+  `source` `default_candidate_fallback`
 
-If Marqo is below threshold, response is:
-
-```json
-{
-  "status": 400,
-  "message": "Generated garment category is uncertain.",
-  "data": null
-}
-```
-
-There is no fallback to the requested type. The returned `category` is always a Marqo category key.
+Low Marqo confidence does **not** fail the request; the returned `category` is always populated.
 
 ## Azure Storage
 
 Client:
 - `app/clients/storage.py`
 
-The API response returns base64. Azure upload still happens because the Glamify backend progress endpoint expects URLs, but upload is now background-only.
+Input and output images are stored in **two separate private containers**. If Azure is not
+configured, the request fails with `500` before generation.
 
-Storage path pattern:
-
-```text
-<WARDROBE_STORAGE_PREFIX>/<user_id>/<job_id>/input.jpg
-<WARDROBE_STORAGE_PREFIX>/<user_id>/<job_id>/output.jpg
-```
-
-Default prefix:
+Storage layout:
 
 ```text
-wardrobe_output/wardrobe
+<AZURE_WARDROBE_INPUT_CONTAINER>/<user_id>/<job_id>/input.jpg     # default container: wardrobe-inputs
+<AZURE_WARDROBE_OUTPUT_CONTAINER>/<user_id>/<job_id>/output.jpg   # default container: wardrobe-outputs
 ```
 
-Content type:
+`<job_id>` is the UUID returned as `data.id`. Content type is `image/jpeg`.
 
-```text
-image/jpeg
-```
-
-If Azure storage is missing or upload fails, the error is logged from the background worker. The already completed API response is not changed.
+If the input upload or progress sync fails, the error is logged from the background worker and the
+already completed API response is not changed.
 
 ## Background Glamify Progress Sync
 
@@ -482,7 +508,7 @@ POST <GLAMIFY_API_BASE_URL>/wardrobe/progress
 Headers:
 
 ```text
-Authorization: <original incoming Authorization header>
+Authorization: Bearer <verified access token from request.state>
 Content-Type: application/json
 ```
 
@@ -493,56 +519,84 @@ Payload:
   "id": "<job_id>",
   "inputImage": "<azure_input_url>",
   "outputImage": "<azure_output_url>",
+  "promptDescription": "<minicpm garment caption>",
   "metadata": {
     "classification": {
       "primary_category": "bottoms",
       "category": "track_pants",
       "category_label": "Track pants",
-      "score": 0.88
+      "score": 0.88,
+      "source": "marqo"
     },
     "marqo": {
       "model": "Marqo/marqo-fashionSigLIP",
       "threshold": 0.25,
+      "applied": true,
+      "reason": "applied",
       "top_matches": []
     },
-    "prompt": "GlamBtmExt. Extract bottom wear as a standalone product.",
+    "prompt": "GlamBtmExt. Extract bottom wear as a standalone product. Target regenerate garment is <caption> ; ...",
     "requested_type": "bottom"
   }
 }
 ```
 
+`promptDescription` is the MiniCPM garment caption (not the Qwen prompt). `metadata.prompt` is the
+full Qwen extraction prompt with the caption embedded.
+
 This sync is intentionally background-only.
 
 Important behavior:
-- input upload starts in the background after preprocessing and before GPU inference
-- output upload starts in the background after generation and Marqo classification
-- successful `/v1/wardrobe` response does not wait for Azure or the Glamify backend
-- sync failure is logged
-- sync failure does not change the already-returned API response
+- input upload (to `wardrobe-inputs`) starts in the background after the detector gate
+- output upload (to `wardrobe-outputs`) starts in the background right after generation, overlapping
+  Marqo; the service joins it only to read the URL for the response
+- the Glamify progress POST itself is fully background; the `/v1/wardrobe` response does not wait
+  for it
+- sync failure is logged and does not change the already-returned API response
 
 ## Success Case
 
 Happy path:
 
 1. Auth middleware validates JWT.
-2. Route validates JSON body.
+2. Route reads the multipart `image` file and `type` form field.
 3. Service resolves `user_id` from JWT.
-4. Base64 image is decoded.
-5. PNG/JPEG format is verified.
-6. Minimum dimensions are verified.
-7. Image is resized to max edge `1024` if needed.
-8. Wardrobe coordinator grants GPU execution slots for model-backed work.
-9. Fashion detector finds at least one garment.
-10. Job directory is created.
-11. Preprocessed input is saved as `input.jpg`.
-12. Input upload to Azure is queued in the background.
-13. Qwen wardrobe runner switches to the requested LoRA.
-14. AI-Toolkit generates fixed-size `832x1248` `output.jpg`.
-15. Marqo classifies generated output.
-16. Marqo best category clears threshold.
-17. Output upload and Glamify progress sync are queued in the background.
-18. Job directory is deleted.
-19. API returns `200` with job id, JPEG base64, and Marqo category key.
+4. Image bytes are opened and PNG/JPEG format is verified.
+5. Minimum dimensions are verified.
+6. Image is resized to max edge `1024` (LANCZOS) if needed.
+7. Azure storage is verified as configured.
+8. Fashion detector finds at least one garment.
+9. `job_id` (UUID) is generated; the input upload to `wardrobe-inputs` is queued in the background.
+10. MiniCPM produces the garment caption from `MINICPM_PROMPT_BY_TYPE[type]`.
+11. The caption fills `QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE[type]` to build the extraction prompt.
+12. Diffusers runner activates the requested LoRA and generates the `832x1248` image (in memory).
+13. The output upload to `wardrobe-outputs` is started in the background.
+14. Marqo classifies the generated output (overlapping the upload) and the category is resolved.
+15. The output upload is joined to obtain its URL.
+16. Glamify progress sync (with `promptDescription` = caption) is queued in the background.
+17. API returns `200` with `job_id`, the output image URL, and the Marqo category key.
+
+## Error Messages
+
+All errors return the envelope with `data: null` and a user-facing `message`:
+
+| Instance | Status | `message` |
+| --- | --- | --- |
+| Missing/invalid auth | `401` | `Invalid token` |
+| Missing `image`/`type` (FastAPI validation) | `422` | `Invalid request.` |
+| Empty image file | `422` | `No image file was provided.` |
+| Not a decodable image | `422` | `The uploaded file is not a valid image. Please upload a PNG or JPEG.` |
+| Unsupported format (GIF/WebP/etc.) | `422` | `Unsupported image format. Only PNG and JPEG images are supported.` |
+| Below min dimensions | `422` | `Image is too small. Width and height must both be at least 350px.` |
+| No garment detected | `400` | `No garment was detected in the image. Please upload a clear photo of a single garment.` |
+| Azure not configured | `500` | `Azure storage is required for wardrobe output.` |
+| Queue full | `503` | `The system is busy. Please try again shortly.` |
+| Queue wait timeout | `503` | `Timed out while waiting for an execution slot. Please try again.` |
+| MiniCPM failure | `500` | `Garment description failed. Please try again.` |
+| Detector/Marqo runtime failure | `500` | `Wardrobe validation runtime failed.` |
+| Qwen runtime/generation failure | `500` | `Wardrobe runtime failed to initialize or execute.` |
+| Output upload failure | `500` | `Failed to upload the extracted garment image.` |
+| Any other error | `500` | `Wardrobe request failed.` |
 
 ## Failure Cases
 
@@ -555,13 +609,12 @@ Response:
 - JSON `status: 401`
 - `data: null`
 
-### Invalid JSON Shape
+### Invalid Multipart Shape
 
 Examples:
-- missing `image`
+- missing `image` file
 - missing `type`
 - invalid `type`
-- wrong JSON types
 
 Handled by FastAPI request validation.
 
@@ -571,27 +624,13 @@ Response:
 - `message: "Invalid request."`
 - `data: null`
 
-### Invalid Base64
+### Invalid Or Unsupported Image
 
 Examples:
-- `image: "not base64"`
-- malformed data URL
+- `image` bytes are not a valid image
+- GIF / WebP / SVG / PDF / non-image content
 
 Handled by service validation.
-
-Response:
-- HTTP `422`
-- JSON `status: 422`
-- `data: null`
-
-### Unsupported Image Type
-
-Examples:
-- GIF
-- WebP
-- SVG
-- PDF
-- text file encoded as base64
 
 Response:
 - HTTP `422`
@@ -619,10 +658,9 @@ No generated image is returned.
 ### Qwen Runtime Failure
 
 Examples:
-- missing AI-Toolkit root
 - missing Qwen model path
 - missing LoRA checkpoint
-- AI-Toolkit import failure
+- diffusers/torch import failure
 - generation produces no output file
 
 Response:
@@ -640,20 +678,19 @@ Response:
 - HTTP `500`
 - JSON `data: null`
 
+### MiniCPM Runtime Failure
+
+If MiniCPM fails to load or describe the garment, response is `500`.
+
 ### Marqo Low Confidence
 
-If generation succeeds but Marqo best score is below `0.25`, response is `400`.
+A low Marqo score does not fail the request. The category is still resolved (with `source`
+`marqo_low_confidence` or a default candidate fallback) and a `200` is returned.
 
-No fallback category is used.
+### Azure Not Configured
 
-### Azure Upload Failure
-
-Azure upload runs in the background.
-
-If Azure storage is missing or upload fails after the main flow completes:
-- the error is logged
-- the user still keeps the `200` response
-- Glamify progress sync cannot send valid URLs for that job
+If Azure storage is not configured, the request fails with `500` before generation (the output URL
+cannot be produced).
 
 ### Background Sync Failure
 
@@ -678,8 +715,11 @@ All errors return:
 }
 ```
 
+The response `image` is:
+- the Azure blob URL of the extracted garment JPEG
+
 The response `category` is:
-- Marqo category key, for example `track_pants`
+- a Marqo category key (or the resolved fallback), for example `track_pants`
 
 The response `categoryLabel` is:
 - display text with the first letter capitalized, for example `Track pants`
@@ -687,20 +727,21 @@ The response `categoryLabel` is:
 The response `type` is:
 - the original requested input type: `top`, `bottom`, or `dress`
 
-It is not:
-- the requested type
-- the detector label
-- a fallback value
-
 ## Health And Warmup
 
 Warmup:
 - `app/runtime/warmup.py`
 
-Startup always runs wardrobe runtime warmup before serving requests:
-1. loads Qwen Image Edit
-2. creates the LoRA network
-3. loads and caches top/bottom/dress LoRA state dicts
+Startup warm-loads **every** model the wardrobe flow depends on, before serving requests, and
+nothing is unloaded afterwards:
+1. loads the `QwenImageEditPlusPipeline` diffusers base (bf16, cuda) + the top/bottom/dress
+   extraction LoRAs as adapters, then runs one warm pass
+2. loads MiniCPM-V in-process via vLLM (after Qwen, so vLLM sizes its allocation around it)
+3. loads the fashion detector
+4. loads the Marqo classifier
+
+The Qwen base is loaded before MiniCPM so vLLM's `gpu_memory_utilization` accounts for the already
+resident Qwen weights.
 
 Health:
 - `app/services/health.py`
@@ -725,15 +766,12 @@ The service assumes the pod has enough VRAM to keep the wardrobe Qwen runtime re
 ```bash
 curl -X POST "$BASE_URL/v1/wardrobe" \
   -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image": "'"$BASE64_IMAGE"'",
-    "type": "bottom"
-  }'
+  -F image=@garment.jpg \
+  -F type=bottom
 ```
 
-The returned `data.image` is raw JPEG base64. To inspect it locally:
+The returned `data.image` is a public Azure blob URL:
 
 ```bash
-jq -r '.data.image' response.json | base64 --decode > output.jpg
+jq -r '.data.image' response.json   # https://<account>.blob.core.windows.net/.../output.jpg
 ```

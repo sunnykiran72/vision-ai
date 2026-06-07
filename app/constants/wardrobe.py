@@ -11,28 +11,136 @@ FASHION_DETECTION_MODEL_ID = "yainage90/fashion-object-detection"
 FASHION_DETECTION_THRESHOLD = 0.25
 
 MARQO_MODEL_ID = "Marqo/marqo-fashionSigLIP"
-MARQO_CONFIDENCE_THRESHOLD = 0.25
+MARQO_CONFIDENCE_THRESHOLD = 0.20
 MARQO_TOP_K = 5
 
 LORA_RANK = 16
 LORA_ALPHA = 16
 QUEUE_WAIT_TIMEOUT_SECONDS = 30
 GLAMIFY_API_TIMEOUT_SECONDS = 20
+AZURE_UPLOAD_TIMEOUT_SECONDS = 60
+
+# MiniCPM-V garment captioner, loaded in-process via vLLM. These mirror the validated reference
+# config and coexist on one GPU beside the resident Qwen model, so vLLM is capped via
+# MINICPM_GPU_MEMORY_UTILIZATION and runs eager + single-sequence. The model pointer is the only
+# environment-specific value (MINICPM_MODEL_PATH).
+MINICPM_GPU_MEMORY_UTILIZATION = 0.27
+MINICPM_MAX_TOKENS = 90
+MINICPM_MAX_SLICE_NUMS = 4
+MINICPM_MAX_MODEL_LEN = 4096
+MINICPM_TEMPERATURE = 0.0
+MINICPM_DTYPE = "bfloat16"
+MINICPM_RESIZE_LONG_PX = 1024
 
 OUTPUT_WIDTH = 832
 OUTPUT_HEIGHT = 1248
-GENERATION_SEED = 43
-GENERATION_STEPS = 15
+GENERATION_SEED = 7777
+GENERATION_STEPS = 10
 GENERATION_GUIDANCE_SCALE = 1.0
 GENERATION_GUIDANCE_RESCALE = 0.0
 GENERATION_NETWORK_MULTIPLIER = 1.0
 GENERATION_SAMPLER = "flowmatch"
 GENERATION_DO_CFG_NORM = False
 
-PROMPT_BY_TYPE = {
-    "top": "GlamTopExt. Extract top wear as a standalone product.",
-    "bottom": "GlamBtmExt. Extract bottom wear as a standalone product.",
-    "dress": "GlamDressExt. Extract dress as a standalone product.",
+# Diffusers (QwenImageEditPlusPipeline) inference. The wardrobe path mirrors the
+# standalone diffusers tester exactly: a single resident base model with the
+# per-category extraction LoRA swapped in. `true_cfg_scale` is the pipeline's real
+# classifier-free-guidance scale (1.0 disables negative-prompt guidance, matching
+# the tester). LoRA scale reuses GENERATION_NETWORK_MULTIPLIER above.
+GENERATION_TRUE_CFG_SCALE = 1.0
+
+
+# --- Wardrobe static prompts -------------------------------------------------
+# MiniCPM garment-description prompts. MiniCPM returns one factual caption describing only
+# the requested garment. The caption is embedded into the Qwen extraction template below and
+# is also sent to the Glamify backend as `promptDescription`.
+MINICPM_PROMPT_BY_TYPE = {
+    "top": """
+You are a fashion product specialist writing a precise prompt used to regenerate this
+garment as an image. Describe ONLY the top garment. Completely ignore the person (face, hair,
+skin, body, midriff, pose), the lower-body garment, footwear, accessories (including any belt
+or sash worn over it), and the background. Describe the garment in its own natural form, not how
+it is styled, tied or cinched.
+
+Write ONE flowing prompt of ~15-55 words using concrete, factual terms only. Every attribute
+you mention must have a concrete value; never output an attribute word on its own. Do not repeat
+the same detail. No filler or marketing words, no hedging, no labels, lists or JSON.
+
+Cover the following ONLY WHEN clearly visible; skip anything not present or not visible, and
+never guess hidden parts: garment type/subtype; neckline and collar style; sleeve or strap
+style, length and cuffs; shoulder style; closure type, count and placement; fit and silhouette;
+length and hem shape/finish; fabric, material and texture; colour(s) and where each sits; print
+or pattern and its placement; structural details; pockets; and trims, embellishments and
+hardware.""",
+
+    "bottom": """
+You are a fashion product specialist writing a precise prompt used to regenerate this
+garment as an image. Describe ONLY the bottom garment. Completely ignore the person (face, hair,
+skin, body, waist, midriff, legs, pose), the upper-body garment, footwear, accessories (including
+any belt or sash worn over or threaded through it), and the background. Describe the garment in
+its own natural form, not how it is styled, tucked, rolled or cuffed.
+
+Write ONE flowing prompt of ~15-55 words using concrete, factual terms only. Every attribute
+you mention must have a concrete value; never output an attribute word on its own. Do not repeat
+the same detail. No filler or marketing words, no hedging, no labels, lists or JSON.
+
+Cover the following ONLY WHEN clearly visible; skip anything not present or not visible, and
+never guess hidden parts: garment type/subtype; waistband style and rise; closure type, count
+and placement; fit and silhouette; leg or skirt opening, length and hem shape/finish; fabric,
+material and texture; colour(s) and where each sits; print or pattern and its placement;
+structural details (pleats, darts, seams, panels, belt loops); pockets; and trims, embellishments
+and hardware.""",
+
+    "dress": """
+You are a fashion product specialist writing a precise prompt used to regenerate this
+garment as an image. Describe ONLY the dress. Completely ignore the person (face, hair, skin,
+body, pose), footwear, accessories (including any belt or sash worn over it), any jacket or outer
+layer worn over it, and the background. Describe the garment in its own natural form, not how it
+is styled, tied or cinched.
+
+Write ONE flowing prompt of ~15-55 words using concrete, factual terms only. Every attribute
+you mention must have a concrete value; never output an attribute word on its own. Do not repeat
+the same detail. No filler or marketing words, no hedging, no labels, lists or JSON.
+
+Cover the following ONLY WHEN clearly visible; skip anything not present or not visible, and
+never guess hidden parts: garment type/subtype; neckline and collar style; sleeve or strap style,
+length and cuffs; shoulder style; bodice and waist construction; closure type, count and
+placement; fit and silhouette; skirt style, length and hem shape/finish; fabric, material and
+texture; colour(s) and where each sits; print or pattern and its placement; structural details;
+pockets; and trims, embellishments and hardware.""",
+
+}
+
+# Qwen extraction prompt templates. `{caption}` is replaced with the MiniCPM caption. Only the
+# leading trigger sentence differs per garment type; the rest is identical.
+QWEN_EXTRACT_PROMPT_TEMPLATE_BY_TYPE = {
+    "top": (
+        "GlamTopExt. Extract top wear as a standalone product. "
+        "Target regenerate garment is {caption} ; "
+        "Keep the garment's exact shape, fabric texture, color and print. "
+        "remove the person, other clothing, background and shadows. "
+        "fill skin-revealing gaps with clean white. "
+        "Present it as a centered product on a pure white background "
+        "with sharp and precise details of original garment."
+    ),
+    "bottom": (
+        "GlamBtmExt. Extract bottom wear as a standalone product. "
+        "Target regenerate garment is {caption} ; "
+        "Keep the garment's exact shape, fabric texture, color and print. "
+        "remove the person, other clothing, background and shadows. "
+        "fill skin-revealing gaps with clean white. "
+        "Present it as a centered product on a pure white background "
+        "with sharp and precise details of original garment."
+    ),
+    "dress": (
+        "GlamDressExt. Extract dress as a standalone product. "
+        "Target regenerate garment is {caption} ; "
+        "Keep the garment's exact shape, fabric texture, color and print. "
+        "remove the person, other clothing, background and shadows. "
+        "fill skin-revealing gaps with clean white. "
+        "Present it as a centered product on a pure white background "
+        "with sharp and precise details of original garment."
+    ),
 }
 
 

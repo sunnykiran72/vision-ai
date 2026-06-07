@@ -147,7 +147,17 @@ def test_run_wardrobe_request_returns_success_and_cleans_workspace(
         "score": 0.88,
         "source": "marqo",
     }
+    assert sync_calls[1]["metadata"]["prompt_source"] == "default"
     assert not any(tmp_path.iterdir())
+
+
+def test_wardrobe_prompt_override_is_used() -> None:
+    prompt = wardrobe_service._resolve_generation_prompt(
+        "  GlamTopExt.   custom garment detail.  ",
+        "top",
+    )
+
+    assert prompt == "GlamTopExt. custom garment detail."
 
 
 def test_wardrobe_detector_no_hit_returns_400(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

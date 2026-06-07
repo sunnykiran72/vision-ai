@@ -55,7 +55,7 @@ def run_wardrobe_request(
     job_paths: WardrobeJobPaths | None = None
     try:
         garment_type = payload.type.value
-        prompt = wardrobe_constants.PROMPT_BY_TYPE[garment_type]
+        prompt = _resolve_generation_prompt(payload.prompt, garment_type)
         decoded_image = _decode_base64_image(payload.image)
         _validate_min_dimensions(decoded_image)
         preprocessed = _resize_to_max_edge(decoded_image, wardrobe_constants.PREPROCESS_MAX_EDGE_PX)
@@ -120,6 +120,7 @@ def run_wardrobe_request(
 
         metadata = {
             "prompt": prompt,
+            "prompt_source": "override" if _has_prompt_override(payload.prompt) else "default",
             "requested_type": garment_type,
         }
         classification = {
@@ -252,6 +253,16 @@ def _image_to_jpeg_bytes(image: Image.Image) -> bytes:
     buffer = BytesIO()
     image.convert("RGB").save(buffer, format="JPEG", quality=95)
     return buffer.getvalue()
+
+
+def _resolve_generation_prompt(prompt: str | None, garment_type: str) -> str:
+    if _has_prompt_override(prompt):
+        return " ".join(str(prompt).split()).strip()
+    return wardrobe_constants.PROMPT_BY_TYPE[garment_type]
+
+
+def _has_prompt_override(prompt: str | None) -> bool:
+    return bool(str(prompt or "").strip())
 
 
 def _build_wardrobe_job_paths(root_dir: Path) -> WardrobeJobPaths:

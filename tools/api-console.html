@@ -468,7 +468,7 @@
       <div class="topbar-inner">
         <div>
           <h1>Glamify AI API Console</h1>
-          <p class="subtitle">Wardrobe, try-on, and upscaler request console with timing, logs, metadata, and previews.</p>
+          <p class="subtitle">Wardrobe, MiniCPM, try-on, and upscaler request console with timing, logs, metadata, and previews.</p>
         </div>
         <div class="settings-grid">
           <div>
@@ -492,6 +492,7 @@
 
       <nav class="tabs" role="tablist" aria-label="API tabs">
         <button class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="tab-wardrobe" data-tab="wardrobe" onclick="switchTab('wardrobe')">Wardrobe</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-minicpm" data-tab="minicpm" onclick="switchTab('minicpm')">MiniCPM</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-tryon" data-tab="tryon" onclick="switchTab('tryon')">Try-On</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="tab-upscale" data-tab="upscale" onclick="switchTab('upscale')">Upscaler</button>
       </nav>
@@ -525,6 +526,10 @@
                     <option value="dataUrl">data URL</option>
                   </select>
                 </div>
+              </div>
+              <div class="field">
+                <label for="wardrobePrompt">Prompt override</label>
+                <textarea id="wardrobePrompt" spellcheck="false" placeholder="Leave empty to use the built-in static prompt for the selected type."></textarea>
               </div>
               <div class="field">
                 <label>Input preview</label>
@@ -574,6 +579,94 @@
               <div class="field">
                 <label>Raw response</label>
                 <div class="codebox"><pre id="wardrobeResponse">{}</pre></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-minicpm" class="tab-panel" role="tabpanel" hidden>
+        <div class="workspace">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>MiniCPM Input</h2>
+              <span class="pill">POST /dev/minicpm/garment</span>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label for="minicpmImage">Image file</label>
+                <input id="minicpmImage" type="file" accept="image/png,image/jpeg">
+                <p id="minicpmImageMeta" class="small">PNG/JPEG base64 input for prompt descriptor testing.</p>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="minicpmType">Type</label>
+                  <select id="minicpmType">
+                    <option value="top" selected>top</option>
+                    <option value="bottom">bottom</option>
+                    <option value="dress">dress</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="minicpmBase64Mode">Image encoding</label>
+                  <select id="minicpmBase64Mode">
+                    <option value="raw" selected>raw base64</option>
+                    <option value="dataUrl">data URL</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="minicpmPrompt">Prompt override</label>
+                <textarea id="minicpmPrompt" spellcheck="false" placeholder="Leave empty to use the built-in type-specific garment construction prompt."></textarea>
+              </div>
+              <div class="field">
+                <label>Input preview</label>
+                <div id="minicpmInputPreview" class="preview-box empty">No image selected</div>
+              </div>
+              <div class="actions">
+                <button class="primary" type="button" data-submit="minicpm" title="Send the MiniCPM JSON to /dev/minicpm/garment">Run MiniCPM</button>
+                <button type="button" data-build="minicpm" title="Rebuild request JSON from the current controls">Build JSON</button>
+                <button type="button" data-copy="minicpmRequest" title="Copy the MiniCPM request JSON">Copy JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Request JSON</h2>
+              <span id="minicpmRequestSize" class="pill">0 bytes</span>
+            </div>
+            <div class="panel-body">
+              <textarea id="minicpmRequest" spellcheck="false"></textarea>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>MiniCPM Output</h2>
+              <div class="status-line">
+                <span id="minicpmStatus" class="pill">idle</span>
+                <span id="minicpmLatency" class="pill">0 ms</span>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="field">
+                <label>Description</label>
+                <div class="codebox"><pre id="minicpmDescription"></pre></div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>Metadata</label>
+                  <div class="codebox"><pre id="minicpmMetadata">{}</pre></div>
+                </div>
+                <div class="field">
+                  <label>Logs</label>
+                  <div id="minicpmLogs" class="logbox"></div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Raw response</label>
+                <div class="codebox"><pre id="minicpmResponse">{}</pre></div>
               </div>
             </div>
           </section>
@@ -777,14 +870,18 @@
   <script>
     const endpoints = {
       wardrobe: "/v1/wardrobe",
+      minicpm: "/dev/minicpm/garment",
       tryon: "/v1/tryon",
       upscale: "/v1/upscale",
     };
 
     const state = {
       wardrobeImage: null,
+      minicpmImage: null,
       history: [],
     };
+
+    const apis = ["wardrobe", "minicpm", "tryon", "upscale"];
 
     const $ = (id) => document.getElementById(id);
 
@@ -852,7 +949,7 @@
     function saveSettings() {
       safeSetStorage("glamifyApiConsole.baseUrl", $("apiBaseUrl").value.trim());
       safeSetStorage("glamifyApiConsole.authToken", $("authToken").value.trim());
-      ["wardrobe", "tryon", "upscale"].forEach((api) => log(api, "Settings saved."));
+      apis.forEach((api) => log(api, "Settings saved."));
     }
 
     function loadSettings() {
@@ -929,12 +1026,28 @@
 
     function buildWardrobePayload() {
       const imageMode = $("wardrobeBase64Mode").value;
-      return {
+      const payload = {
         image: state.wardrobeImage
           ? (imageMode === "dataUrl" ? state.wardrobeImage.dataUrl : state.wardrobeImage.rawBase64)
           : "",
         type: $("wardrobeType").value,
       };
+      const prompt = $("wardrobePrompt").value.trim();
+      if (prompt) payload.prompt = prompt;
+      return payload;
+    }
+
+    function buildMiniCPMPayload() {
+      const imageMode = $("minicpmBase64Mode").value;
+      const payload = {
+        image: state.minicpmImage
+          ? (imageMode === "dataUrl" ? state.minicpmImage.dataUrl : state.minicpmImage.rawBase64)
+          : "",
+        type: $("minicpmType").value,
+      };
+      const prompt = $("minicpmPrompt").value.trim();
+      if (prompt) payload.prompt = prompt;
+      return payload;
     }
 
     function buildTryonPayload() {
@@ -965,6 +1078,7 @@
 
     function buildPayload(api) {
       if (api === "wardrobe") return buildWardrobePayload();
+      if (api === "minicpm") return buildMiniCPMPayload();
       if (api === "tryon") return buildTryonPayload();
       return buildUpscalePayload();
     }
@@ -994,6 +1108,14 @@
           categoryLabel: data.categoryLabel,
         };
       }
+      if (api === "minicpm") {
+        return {
+          type: data.type,
+          model: data.model,
+          description: data.description,
+          ...(data.metadata || {}),
+        };
+      }
       return data.metadata || {};
     }
 
@@ -1003,7 +1125,8 @@
       setPill(`${api}Latency`, "0 ms");
       $(`${api}Response`).textContent = "{}";
       $(`${api}Metadata`).textContent = "{}";
-      setPreview(`${api}OutputPreview`, "", "");
+      if ($(`${api}Description`)) $(`${api}Description`).textContent = "";
+      if ($(`${api}OutputPreview`)) setPreview(`${api}OutputPreview`, "", "");
 
       let payload;
       try {
@@ -1045,7 +1168,12 @@
         $(`${api}Response`).textContent = pretty(json);
         const metadata = metadataFromResponse(api, json);
         $(`${api}Metadata`).textContent = pretty(metadata);
-        setPreview(`${api}OutputPreview`, outputImageFromResponse(api, json), `${api} output`);
+        if ($(`${api}Description`)) {
+          $(`${api}Description`).textContent = json && json.data ? (json.data.description || "") : "";
+        }
+        if ($(`${api}OutputPreview`)) {
+          setPreview(`${api}OutputPreview`, outputImageFromResponse(api, json), `${api} output`);
+        }
 
         const appStatus = json && typeof json.status !== "undefined" ? Number(json.status) : response.status;
         const ok = response.ok && appStatus >= 200 && appStatus < 300;
@@ -1066,6 +1194,9 @@
       if (json.message) return json.message;
       if (api === "wardrobe" && json.data) {
         return `${json.data.type || ""} ${json.data.category || ""}`.trim();
+      }
+      if (api === "minicpm" && json.data) {
+        return `${json.data.type || ""} descriptor`.trim();
       }
       if (json.data && json.data.url) return json.data.url;
       return "Completed";
@@ -1184,7 +1315,7 @@
           }
         });
       });
-      ["wardrobeRequest", "tryonRequest", "upscaleRequest"].forEach((id) => {
+      ["wardrobeRequest", "minicpmRequest", "tryonRequest", "upscaleRequest"].forEach((id) => {
         $(id).addEventListener("input", () => updateRequestSize(id.replace("Request", "")));
       });
     }
@@ -1198,6 +1329,7 @@
       ["wardrobeType", "wardrobeBase64Mode"].forEach((id) => {
         $(id).addEventListener("change", () => setRequestJson("wardrobe", buildWardrobePayload()));
       });
+      $("wardrobePrompt").addEventListener("input", () => setRequestJson("wardrobe", buildWardrobePayload()));
       $("wardrobeImage").addEventListener("change", async (event) => {
         try {
           const file = event.target.files && event.target.files[0];
@@ -1211,6 +1343,25 @@
           state.wardrobeImage = null;
           $("wardrobeImageMeta").textContent = error.message;
           log("wardrobe", `Image load failed: ${error.message}`);
+        }
+      });
+      ["minicpmType", "minicpmBase64Mode"].forEach((id) => {
+        $(id).addEventListener("change", () => setRequestJson("minicpm", buildMiniCPMPayload()));
+      });
+      $("minicpmPrompt").addEventListener("input", () => setRequestJson("minicpm", buildMiniCPMPayload()));
+      $("minicpmImage").addEventListener("change", async (event) => {
+        try {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          state.minicpmImage = await fileToImageState(file);
+          $("minicpmImageMeta").textContent = `${state.minicpmImage.name} - ${state.minicpmImage.width}x${state.minicpmImage.height} - ${state.minicpmImage.type || "unknown"} - ${state.minicpmImage.size.toLocaleString()} bytes`;
+          setPreview("minicpmInputPreview", state.minicpmImage.dataUrl, "MiniCPM input");
+          setRequestJson("minicpm", buildMiniCPMPayload());
+          log("minicpm", "Input image loaded.");
+        } catch (error) {
+          state.minicpmImage = null;
+          $("minicpmImageMeta").textContent = error.message;
+          log("minicpm", `Image load failed: ${error.message}`);
         }
       });
       ["tryonUserImage", "tryonSeed", "tryonSteps", "tryonGuidance"].forEach((id) => {
@@ -1250,9 +1401,10 @@
         prompt: "Apply this garment naturally.",
       });
       setRequestJson("wardrobe", buildWardrobePayload());
+      setRequestJson("minicpm", buildMiniCPMPayload());
       setRequestJson("tryon", buildTryonPayload());
       setRequestJson("upscale", buildUpscalePayload());
-      ["wardrobe", "tryon", "upscale"].forEach((api) => {
+      apis.forEach((api) => {
         clearLogs(api);
         log(api, "Ready.");
       });

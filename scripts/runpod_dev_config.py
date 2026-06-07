@@ -7,9 +7,16 @@ import subprocess
 from pathlib import Path
 
 WARDROBE_RUNS = {
-    "top": "qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1",
-    "bottom": "qwen_garment_extract_bottom119_glambtmext_rank16_b1_extend_22k_to_30k_lr815e5_live",
-    "dress": "qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1",
+    "top": (
+        "qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1",
+    ),
+    "bottom": (
+        "qwen_garment_extract_bottom119_glambtmext_rank16_b1_extend_22k_to_30k_lr815e5_live",
+        "qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1",
+    ),
+    "dress": (
+        "qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1",
+    ),
 }
 
 TRYON_RUNS = {
@@ -83,9 +90,9 @@ def main() -> None:
         "GLAMIFY_API_BASE_URL": args.glamify_api_base_url,
     }
 
-    for key, run_name in WARDROBE_RUNS.items():
-        env_values[f"WARDROBE_LORA_{key.upper()}_PATH"] = _latest_checkpoint(
-            run_name,
+    for key, run_names in WARDROBE_RUNS.items():
+        env_values[f"WARDROBE_LORA_{key.upper()}_PATH"] = _latest_checkpoint_for_runs(
+            run_names,
             search_roots,
         )
 
@@ -141,6 +148,18 @@ def _latest_checkpoint(run_name: str, search_roots: tuple[str, ...]) -> str:
     if not matches:
         raise SystemExit(f"No safetensors checkpoint found for run: {run_name}")
     return str(max(matches, key=_checkpoint_score))
+
+
+def _latest_checkpoint_for_runs(run_names: tuple[str, ...], search_roots: tuple[str, ...]) -> str:
+    missing: list[str] = []
+    for run_name in run_names:
+        try:
+            return _latest_checkpoint(run_name, search_roots)
+        except SystemExit:
+            missing.append(run_name)
+    raise SystemExit(
+        "No safetensors checkpoint found for any run: " + ", ".join(missing),
+    )
 
 
 def _checkpoint_score(path: Path) -> tuple[int, float]:

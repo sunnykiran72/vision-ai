@@ -2,9 +2,11 @@ from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
 from app.main import app
+from app.models.minicpm import MiniCPMGarmentResponse, MiniCPMGarmentResult
 from app.models.tryon import TryonResponse, TryonResponseData
 from app.models.upscale import UpscaleResponse, UpscaleResponseData
 from app.models.wardrobe import WardrobeAnalyzeResponse, WardrobeAnalyzeResult
+from app.routes import minicpm as minicpm_route
 from app.routes import tryon as tryon_route
 from app.routes import upscale as upscale_route
 from app.routes import wardrobe as wardrobe_route
@@ -30,6 +32,7 @@ def test_wardrobe_route_uses_structured_request(
         bearer_token: str,
     ) -> WardrobeAnalyzeResponse:
         assert payload.type == "top"
+        assert payload.prompt == "GlamTopExt. custom descriptor."
         assert user_id == auth_user_id
         assert bearer_token.startswith("Bearer ")
         return WardrobeAnalyzeResponse(
@@ -49,7 +52,11 @@ def test_wardrobe_route_uses_structured_request(
     response = client.post(
         "/v1/wardrobe",
         headers=auth_header,
-        json={"image": "base64", "type": "top"},
+        json={
+            "image": "base64",
+            "type": "top",
+            "prompt": "GlamTopExt. custom descriptor.",
+        },
     )
 
     assert response.status_code == 200
@@ -62,6 +69,41 @@ def test_user_validation_route_exists(auth_header: dict[str, str]) -> None:
     response = client.post("/v1/user_validation", headers=auth_header)
     assert response.status_code == 200
     assert response.json()["feature"] == "user_validation"
+
+
+def test_minicpm_route_uses_structured_request(
+    monkeypatch: MonkeyPatch,
+    auth_header: dict[str, str],
+) -> None:
+    def fake_run_minicpm_garment_request(payload) -> MiniCPMGarmentResponse:
+        assert payload.type == "top"
+        return MiniCPMGarmentResponse(
+            status=200,
+            message="",
+            data=MiniCPMGarmentResult(
+                type="top",
+                description="plain garment construction sentence.",
+                prompt="prompt text",
+                model="openbmb/MiniCPM-V-4.6",
+                metadata={"latency_ms": 10},
+            ),
+        )
+
+    monkeypatch.setattr(
+        minicpm_route,
+        "run_minicpm_garment_request",
+        fake_run_minicpm_garment_request,
+    )
+
+    response = client.post(
+        "/dev/minicpm/garment",
+        headers=auth_header,
+        json={"image": "base64", "type": "top"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["description"] == "plain garment construction sentence."
+    assert response.json()["data"]["metadata"]["latency_ms"] == 10
 
 
 def test_tryon_route_exists(

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SeedVR2 Upscale Lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d1117; color: #e6edf3; padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  label { display: block; font-size: 12px; color: #8b949e; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+  .field { flex: 1 1 200px; min-width: 180px; }
+  select, input[type=number], input[type=file] {
+    width: 100%; background: #0d1117; border: 1px solid #30363d; color: #e6edf3;
+    border-radius: 8px; padding: 9px 10px; font-size: 14px;
+  }
+  button {
+    background: #238636; border: 1px solid #2ea043; color: #fff; font-weight: 600;
+    border-radius: 8px; padding: 10px 18px; font-size: 14px; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .imgbox { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px; }
+  .imgbox h3 { margin: 0 0 8px; font-size: 13px; color: #58a6ff; }
+  .imgbox .dims { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+  .imgbox img { width: 100%; height: auto; border-radius: 6px; background: #161b22; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  th { color: #8b949e; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .ok { background: #1f6feb33; color: #58a6ff; }
+  .miss { background: #6e768166; color: #8b949e; }
+  .err { color: #f85149; font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+  .timings { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 12px; }
+  .timings div { font-size: 13px; }
+  .timings b { color: #e6edf3; font-size: 18px; display: block; }
+  .timings span { color: #8b949e; font-size: 12px; }
+  .big { font-size: 22px; color: #3fb950; }
+</style>
+</head>
+<body>
+  <h1>SeedVR2 Upscale Lab</h1>
+  <div class="sub">Isolated latency / quality A/B tester. Does NOT touch the production <code>/v1/upscale</code> path. Pre-resize the longest edge, then upscale to a target longest edge, and compare variants.</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field">
+        <label>Model variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="field" style="flex:0 0 170px">
+        <label>Pre-resize max edge (px)</label>
+        <input type="number" id="preEdge" value="1024" min="64" step="16" />
+      </div>
+      <div class="field" style="flex:0 0 170px">
+        <label>Output max edge (px)</label>
+        <input type="number" id="outEdge" value="1536" min="64" step="16" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div class="field">
+        <label>Input image</label>
+        <input type="file" id="file" accept="image/*" />
+      </div>
+      <div class="field" style="flex:0 0 auto">
+        <button id="run" disabled>Run upscale</button>
+      </div>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <div class="imgs">
+      <div class="imgbox"><h3>Original</h3><div class="dims" id="d0"></div><img id="i0" /></div>
+      <div class="imgbox"><h3>Preprocessed (pre-resize)</h3><div class="dims" id="d1"></div><img id="i1" /></div>
+      <div class="imgbox"><h3>Upscaled output</h3><div class="dims" id="d2"></div><img id="i2" /></div>
+    </div>
+    <div class="timings">
+      <div><span>resize</span><b id="tResize">-</b></div>
+      <div><span>upscale</span><b id="tUpscale" class="big">-</b></div>
+      <div><span>total</span><b id="tTotal">-</b></div>
+      <div><span>derived short edge</span><b id="tShort">-</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Run history (this session)</label>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Variant</th><th>Pre-edge</th><th>Out-edge</th>
+        <th>Input</th><th>Preproc</th><th>Output</th>
+        <th>Resize s</th><th>Upscale s</th><th>Total s</th>
+      </tr></thead>
+      <tbody id="hist"></tbody>
+    </table>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let runCount = 0;
+
+async function loadVariants() {
+  const sel = $('variant');
+  try {
+    const r = await fetch('/tools/upscale-lab/variants');
+    const j = await r.json();
+    sel.innerHTML = '';
+    j.variants.forEach(v => {
+      const opt = document.createElement('option');
+      const sizeTxt = v.present
+        ? (v.size_bytes ? (v.size_bytes / 1e9).toFixed(2) + ' GB on disk' : 'present')
+        : 'NOT downloaded (' + v.approx_size + ')';
+      opt.value = v.filename;
+      opt.textContent = v.label + ' - ' + sizeTxt;
+      opt.disabled = !v.present;
+      sel.appendChild(opt);
+    });
+    // Select the first present variant by default.
+    const firstPresent = Array.from(sel.options).find(o => !o.disabled);
+    if (firstPresent) sel.value = firstPresent.value;
+  } catch (e) {
+    $('err').textContent = 'Failed to load variants: ' + e;
+  }
+}
+
+$('file').addEventListener('change', () => {
+  $('run').disabled = !$('file').files.length;
+});
+
+$('run').addEventListener('click', async () => {
+  const file = $('file').files[0];
+  if (!file) return;
+  $('err').textContent = '';
+  $('run').disabled = true;
+  $('run').textContent = 'Running...';
+
+  const fd = new FormData();
+  fd.append('image', file);
+  fd.append('model_variant', $('variant').value);
+  fd.append('pre_resize_max_edge', $('preEdge').value);
+  fd.append('output_max_edge', $('outEdge').value);
+
+  try {
+    const r = await fetch('/tools/upscale-lab/run', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!j.ok) { $('err').textContent = j.error || 'Run failed.'; return; }
+
+    $('resultCard').style.display = 'block';
+    $('i0').src = URL.createObjectURL(file);
+    $('d0').textContent = j.input.width + ' x ' + j.input.height;
+    $('i1').src = j.preprocessed.image;
+    $('d1').textContent = j.preprocessed.width + ' x ' + j.preprocessed.height +
+      (j.preprocessed.was_resized ? ' (resized)' : ' (unchanged)');
+    $('i2').src = j.output.image;
+    $('d2').textContent = j.output.width + ' x ' + j.output.height;
+
+    $('tResize').textContent = j.timings.resize_seconds + 's';
+    $('tUpscale').textContent = j.timings.upscale_seconds + 's';
+    $('tTotal').textContent = j.timings.total_seconds + 's';
+    $('tShort').textContent = j.target.derived_short_edge;
+
+    runCount += 1;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${runCount}</td><td>${j.model_variant}</td>` +
+      `<td>${j.target.pre_resize_max_edge}</td><td>${j.target.output_max_edge}</td>` +
+      `<td>${j.input.width}x${j.input.height}</td>` +
+      `<td>${j.preprocessed.width}x${j.preprocessed.height}</td>` +
+      `<td>${j.output.width}x${j.output.height}</td>` +
+      `<td>${j.timings.resize_seconds}</td><td>${j.timings.upscale_seconds}</td>` +
+      `<td><b>${j.timings.total_seconds}</b></td>`;
+    $('hist').prepend(tr);
+  } catch (e) {
+    $('err').textContent = 'Request error: ' + e;
+  } finally {
+    $('run').disabled = false;
+    $('run').textContent = 'Run upscale';
+  }
+});
+
+loadVariants();
+</script>
+</body>
+</html>

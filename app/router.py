@@ -6,6 +6,7 @@ from app.routes.minicpm import router as minicpm_router
 from app.routes.tools import router as tools_router
 from app.routes.tryon import router as tryon_router
 from app.routes.upscale import router as upscale_router
+from app.routes.upscale_lab import router as upscale_lab_router
 from app.routes.user_validation import router as user_validation_router
 from app.routes.wardrobe import router as wardrobe_router
 
@@ -18,3 +19,4 @@ router.include_router(wardrobe_router, tags=["wardrobe"])
 router.include_router(user_validation_router, tags=["user-validation"])
 router.include_router(tryon_router, tags=["tryon"])
 router.include_router(upscale_router, tags=["upscale"])
+router.include_router(upscale_lab_router, tags=["tools"])

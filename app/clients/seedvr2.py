@@ -187,6 +187,20 @@ class SeedVR2Client:
         spec.loader.exec_module(module)
         if hasattr(module, "debug"):
             module.debug.enabled = False
+        # torch.compile enablement fixes for SeedVR2 on this stack:
+        # (1) numz #502: a torch.compiled model is wrapped in OptimizedModule, which has no
+        #     __bool__, so `if model:` truthiness checks fall back to __len__ and raise
+        #     ("CompatibleDiT does not support len()"). Make compiled modules truthy.
+        # (2) cudnn.benchmark selects the fastest Conv3d algorithms for the fixed-shape VAE.
+        try:
+            import torch as _torch
+            from torch._dynamo.eval_frame import OptimizedModule
+
+            if not hasattr(OptimizedModule, "__bool__"):
+                OptimizedModule.__bool__ = lambda self: True  # type: ignore[attr-defined]
+            _torch.backends.cudnn.benchmark = True
+        except Exception:
+            pass
         return module
 
     def _build_args(
@@ -227,6 +241,12 @@ class SeedVR2Client:
             "--tensor_offload_device",
             "cpu",
         ]
+        # torch.compile (Triton/inductor) is a lossless ~20-40% DiT + ~15-25% VAE speedup.
+        # Gated by env: compile recompiles per new input shape, so production must pre-warm
+        # at the target resolution (otherwise the first request per shape pays a ~2min compile).
+        # Default on. Set UPSCALE_COMPILE=0 to disable.
+        if os.environ.get("UPSCALE_COMPILE", "1") != "0":
+            argv += ["--compile_dit", "--compile_vae"]
         original_argv = list(sys.argv)
         try:
             sys.argv = argv
@@ -235,7 +255,7 @@ class SeedVR2Client:
             sys.argv = original_argv
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
 def get_seedvr2_client(
     upscale_model_path: str,
     upscale_model_variant: str,

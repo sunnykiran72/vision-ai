@@ -149,7 +149,7 @@ MiniCPM-V (in-process vLLM) config, also in `app/constants/wardrobe.py`:
 
 The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. The legacy
 `GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
-the file for the AI-Toolkit try-on path and are not used by wardrobe.
+the file for historical compatibility and are not used by wardrobe.
 
 Qwen diffusers dtype is controlled by `QWEN_IMAGE_EDIT_DTYPE`. Use `bfloat16` for the production
 baseline. `float8_e4m3fn` is available only as an experimental comparison path and should be judged
@@ -195,11 +195,10 @@ Important environment variables:
 | `SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS` | System-wide queue wait timeout, default `30` |
 | `GLAMIFY_API_BASE_URL` | Environment-specific Glamify backend base URL |
 
-The wardrobe backend is diffusers, so `AI_TOOLKIT_ROOT` is **not** required for wardrobe; it is
-only validated when the `tryon` runtime is resident. When the `wardrobe` runtime is resident,
-startup validation requires the Qwen model path, `MINICPM_MODEL_PATH`, the input/output
-containers, Azure settings, the three wardrobe LoRA paths,
-and `GLAMIFY_API_BASE_URL`.
+Wardrobe and try-on both use the diffusers Qwen backend, so `AI_TOOLKIT_ROOT` is not required for
+either production runtime. When the `wardrobe` runtime is resident, startup validation requires the
+Qwen model path, `MINICPM_MODEL_PATH`, the input/output containers, Azure settings, the three
+wardrobe LoRA paths, and `GLAMIFY_API_BASE_URL`.
 
 ## Service Flow
 

@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(
-        title="glamify-vision-ai",
+        title="glamify-image-ai",
         debug=True,
         version="0.1.0",
         docs_url="/docs",

@@ -217,5 +217,5 @@ uses `0.10`; clear stale vLLM workers before warmup and verify with `nvidia-smi`
   - `/workspace/loras/wardrobe/top_23000.safetensors`
   - `/workspace/loras/wardrobe/bottom_30000.safetensors`
   - `/workspace/loras/wardrobe/dress_27000.safetensors`
-- Try-on/AI-Toolkit assets are not staged yet. Keep `tryon` out of `RESIDENT_RUNTIMES` until those
-  paths exist.
+- Try-on LoRAs are not staged yet. Keep `tryon` out of `RESIDENT_RUNTIMES` until
+  `/workspace/loras/tryon/{top,bottom,dress,multi}.safetensors` exist.

@@ -529,9 +529,13 @@
 
     let lastWardrobeOutputUrl = "";
     let tokenExpiresAt = 0;
+    const DEFAULT_API_BASE = "https://ra4nfsl1lrajm5-8000.proxy.runpod.net";
 
     function loadSettings() {
-      els.apiBase.value = localStorage.getItem("glamifyTester.apiBase") || "http://127.0.0.1:8000";
+      const savedApiBase = localStorage.getItem("glamifyTester.apiBase") || "";
+      els.apiBase.value = ["http://127.0.0.1:8000", "http://localhost:8000"].includes(savedApiBase)
+        ? DEFAULT_API_BASE
+        : savedApiBase || DEFAULT_API_BASE;
       els.jwtUserId.value = localStorage.getItem("glamifyTester.jwtUserId") || "";
       els.wardrobeType.value = localStorage.getItem("glamifyTester.wardrobeType") || "top";
       els.upscaleMetric.value = localStorage.getItem("glamifyTester.upscaleMetric") || "2k";

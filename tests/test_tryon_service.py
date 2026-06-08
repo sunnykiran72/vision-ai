@@ -38,32 +38,29 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
         def run_tryon(
             self,
             *,
-            person_image_path: str,
-            garment_reference_path: str,
+            person_image: Image.Image,
+            garment_reference_image: Image.Image,
             prompt: str,
             steps: int,
             guidance_scale: float,
             seed: int,
-            output_path: str,
             output_width: int,
             output_height: int,
             lora_key: str | None = None,
         ) -> TryonRunResult:
             del prompt, steps, guidance_scale, seed, lora_key
-            assert Path(person_image_path).exists()
-            assert Path(garment_reference_path).exists()
-            output = Image.open(garment_reference_path).convert("RGB").resize(
+            assert person_image.size == (512, 768)
+            output = garment_reference_image.convert("RGB").resize(
                 (output_width, output_height),
             )
-            output.save(output_path, format="JPEG", quality=95)
             return TryonRunResult(
                 image=output,
                 metadata={
-                    "backend": "ai_toolkit_exact",
+                    "backend": "diffusers_qwen_image_edit_plus",
                     "lora_loaded": True,
                     "control_order": {
-                        "ctrl_img_1": "person",
-                        "ctrl_img_2": "garment_reference",
+                        "image_1": "person",
+                        "image_2": "garment_reference",
                     },
                 },
                 wall_seconds=1.4,
@@ -77,7 +74,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
 
     monkeypatch.setattr(
         tryon_service,
-        "get_tryon_execution_coordinator",
+        "get_system_execution_coordinator",
         lambda *_args: ImmediateCoordinator(),
     )
 
@@ -85,14 +82,14 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
         def __init__(self, _settings: Settings):
             self.is_configured = True
 
-        def upload_file(
+        def upload_bytes(
             self,
-            file_path: Path,
+            content: bytes,
             *,
             object_name: str,
             content_type: str | None = None,
         ) -> str:
-            assert file_path.exists()
+            assert content
             assert "/user-123/" in object_name
             assert object_name.endswith("/output.jpg")
             assert content_type == "image/jpeg"
@@ -101,10 +98,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     monkeypatch.setattr(tryon_service, "AzureStorageClient", FakeStorageClient)
 
     settings = Settings(
-        TRYON_WORK_ROOT=str(tmp_path),
-        AI_TOOLKIT_ROOT="/workspace/ai-toolkit",
         QWEN_IMAGE_EDIT_MODEL_PATH="/workspace/models/qwen-image-edit-2511",
-        TRYON_LORA_PATH="/workspace/models/lora/tryon",
     )
     payload = TryonRequest.model_validate(
         {
@@ -125,15 +119,183 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     assert response.data.url is not None
     assert response.data.metadata["feature"] == "tryon"
     assert response.data.metadata["reference"]["product_reference_mode"] == "single_product"
-    assert response.data.metadata["reference"]["control_order"]["ctrl_img_1"] == "person"
-    assert response.data.metadata["reference"]["control_order"]["ctrl_img_2"] == "garment_reference"
+    assert response.data.metadata["reference"]["control_order"]["image_1"] == "person"
+    assert response.data.metadata["reference"]["control_order"]["image_2"] == "garment_reference"
     assert response.data.metadata["resolved_settings"]["seed"] == 43
+    assert response.data.metadata["resolved_settings"]["steps"] == 12
     assert response.data.metadata["output"]["width"] == 512
     assert response.data.metadata["output"]["height"] == 768
     assert response.data.metadata["output"]["inference_width"] == 512
     assert response.data.metadata["output"]["inference_height"] == 768
-    assert response.data.metadata["routing"]["use_specialists"] is False
+    assert response.data.metadata["routing"]["lora_key"] == "top"
+    assert response.data.metadata["reference"]["garment_reference_max_edge"] == 768
     assert not any(tmp_path.iterdir())
+
+
+def test_tryon_uses_person_dimensions_and_caps_garment_reference(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user_bytes = _build_png_bytes(1024, 1536)
+    garment_bytes = _build_png_bytes(1600, 1200)
+
+    def fake_download(url: str) -> DownloadedMedia:
+        content = user_bytes if "user" in url else garment_bytes
+        return DownloadedMedia(
+            content=content,
+            content_type="image/png",
+            source_url=url,
+            filename="image.png",
+        )
+
+    monkeypatch.setattr(tryon_service, "download_media_from_url", fake_download)
+
+    class FakeQwenClient:
+        def run_tryon(
+            self,
+            *,
+            person_image: Image.Image,
+            garment_reference_image: Image.Image,
+            prompt: str,
+            steps: int,
+            guidance_scale: float,
+            seed: int,
+            output_width: int,
+            output_height: int,
+            lora_key: str | None = None,
+        ) -> TryonRunResult:
+            del prompt, steps, guidance_scale, seed, lora_key
+            assert person_image.size == (1024, 1536)
+            assert max(garment_reference_image.size) == 768
+            assert (output_width, output_height) == (1024, 1536)
+            return TryonRunResult(
+                image=Image.new("RGB", (output_width, output_height), "white"),
+                metadata={},
+                wall_seconds=0.2,
+            )
+
+    monkeypatch.setattr(tryon_service, "get_tryon_runner", lambda *_args: FakeQwenClient())
+
+    class ImmediateCoordinator:
+        def run(self, fn: Callable[[], T]) -> T:
+            return fn()
+
+    monkeypatch.setattr(
+        tryon_service,
+        "get_system_execution_coordinator",
+        lambda *_args: ImmediateCoordinator(),
+    )
+
+    class FakeStorageClient:
+        def __init__(self, _settings: Settings):
+            self.is_configured = True
+
+        def upload_bytes(
+            self,
+            content: bytes,
+            *,
+            object_name: str,
+            content_type: str | None = None,
+        ) -> str:
+            del content, content_type
+            return f"https://example.com/{object_name}"
+
+    monkeypatch.setattr(tryon_service, "AzureStorageClient", FakeStorageClient)
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/garment.png",
+                    "type": "top",
+                    "prompt": "red jacket",
+                }
+            ],
+        },
+    )
+
+    response = tryon_service.run_tryon_request(payload, settings=Settings(), user_id="user-123")
+
+    assert response.status == 200
+    assert response.data is not None
+    assert response.data.metadata["output"]["inference_width"] == 1024
+    assert response.data.metadata["output"]["inference_height"] == 1536
+    assert response.data.metadata["reference"]["garment_reference_size"] == {
+        "width": 768,
+        "height": 576,
+    }
+
+
+def test_tryon_returns_422_null_data_for_invalid_garment_image(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user_bytes = _build_png_bytes(512, 768)
+
+    def fake_download(url: str) -> DownloadedMedia:
+        content = user_bytes if "user" in url else b"not an image"
+        return DownloadedMedia(
+            content=content,
+            content_type="image/png",
+            source_url=url,
+            filename="image.png",
+        )
+
+    monkeypatch.setattr(tryon_service, "download_media_from_url", fake_download)
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/garment.png",
+                    "type": "top",
+                    "prompt": "red jacket",
+                }
+            ],
+        },
+    )
+
+    response = tryon_service.run_tryon_request(payload, settings=Settings(), user_id="user-123")
+
+    assert response.status == 422
+    assert response.message == "Garment image is invalid or could not be downloaded."
+    assert response.data is None
+
+
+def test_tryon_returns_422_null_data_for_invalid_user_image(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    garment_bytes = _build_png_bytes(512, 768)
+
+    def fake_download(url: str) -> DownloadedMedia:
+        content = b"not an image" if "user" in url else garment_bytes
+        return DownloadedMedia(
+            content=content,
+            content_type="image/png",
+            source_url=url,
+            filename="image.png",
+        )
+
+    monkeypatch.setattr(tryon_service, "download_media_from_url", fake_download)
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/garment.png",
+                    "type": "top",
+                    "prompt": "red jacket",
+                }
+            ],
+        },
+    )
+
+    response = tryon_service.run_tryon_request(payload, settings=Settings(), user_id="user-123")
+
+    assert response.status == 422
+    assert response.message == "User image is invalid or could not be downloaded."
+    assert response.data is None
 
 
 def test_build_tryon_prompt_preserves_duplicate_types_in_priority_order() -> None:
@@ -190,7 +352,7 @@ def test_specialist_prompt_uses_trigger_caption_and_product_detail() -> None:
             ],
         },
     )
-    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    settings = Settings()
     from app.services.tryon_routing import resolve_tryon_route
 
     routing = resolve_tryon_route(payload.products, settings)
@@ -218,7 +380,7 @@ def test_specialist_routing_outer_maps_to_top() -> None:
             ],
         },
     )
-    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    settings = Settings()
     routing = resolve_tryon_route(payload.products, settings)
 
     assert routing.lora_key == "top"
@@ -245,7 +407,7 @@ def test_specialist_routing_multi_for_two_or_more_products() -> None:
             ],
         },
     )
-    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    settings = Settings()
     routing = resolve_tryon_route(payload.products, settings)
 
     assert routing.lora_key == "multi"
@@ -268,7 +430,6 @@ def test_specialist_routing_rejects_disabled_specialist() -> None:
         },
     )
     settings = Settings(
-        TRYON_USE_SPECIALISTS=True,
         TRYON_ENABLED_SPECIALISTS="top,bottom",
     )
 
@@ -300,7 +461,7 @@ def test_specialist_prompt_multi_lists_each_category() -> None:
             ],
         },
     )
-    settings = Settings(TRYON_USE_SPECIALISTS=True)
+    settings = Settings()
     routing = resolve_tryon_route(payload.products, settings)
     prompt = tryon_service._build_specialist_prompt(payload.products, routing, settings)
 

@@ -52,4 +52,4 @@ class TryonResponseData(BaseModel):
 
 
 class TryonResponse(ApiResponse[TryonResponseData]):
-    data: TryonResponseData
+    data: TryonResponseData | None = None

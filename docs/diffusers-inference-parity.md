@@ -10,7 +10,7 @@ This document records the reference, the exact inference contract we replicate, 
 maps onto this service.
 
 > **Production note.** The 8000/8010 webapps are dev-pod **reference testers only**. Production is
-> a dedicated pod running only this vision-ai service, with both Qwen (diffusers) and MiniCPM-V
+> a dedicated pod running only this glamify-image-ai service, with both Qwen (diffusers) and MiniCPM-V
 > (in-process vLLM) bundled in one process on one port. We replicate the testers' *code/inference*,
 > never call their URLs. MiniCPM-V is documented in `docs/wardrobe-flow.md`; its tester is vendored
 > at `reference/minicpm_vllm_webapp/app.py`.
@@ -116,12 +116,14 @@ and the model through `QWEN_IMAGE_EDIT_MODEL_PATH=/mnt/models/qwen-image-edit-25
 
 ## Try-on
 
-Try-on is **unchanged** in this pass — it still runs on the AI-Toolkit backend. The diffusers
-backend will be extended to try-on once its LoRAs are decided. The AI-Toolkit code is left intact.
+Try-on now shares the same resident `QwenImageEditPlusPipeline` diffusers backend. It loads
+additional namespaced try-on adapters (`tryon_top`, `tryon_bottom`, `tryon_dress`, `tryon_multi`)
+onto the same Qwen base used by wardrobe, so enabling try-on does not load a second Qwen model.
+The `/v1/tryon` API contract remains unchanged.
 
 ## Running And Testing
 
-On the dedicated vision-ai pod the service runs on port `8000` (see
+On the dedicated glamify-image-ai pod the service runs on port `8000` (see
 `docs/deployment-setup.md` for full install/run steps):
 
 ```bash

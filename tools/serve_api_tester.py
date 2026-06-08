@@ -15,6 +15,8 @@ import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import certifi
+
 
 ROOT = Path(__file__).resolve().parent
 HTML = ROOT / "glamify_api_tester.html"
@@ -60,9 +62,10 @@ def _load_jwt_secret() -> str:
 def _make_jwt(secret: str, user_id: str, ttl_seconds: int) -> tuple[str, int]:
     now = int(time.time())
     expires_at = now + ttl_seconds
+    resolved_user_id = _resolve_user_id(user_id)
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
-        "userId": user_id,
+        "userId": resolved_user_id,
         "authType": "EMAIL",
         "token_id": str(uuid.uuid4()),
         "iat": now,
@@ -76,6 +79,16 @@ def _make_jwt(secret: str, user_id: str, ttl_seconds: int) -> tuple[str, int]:
     )
     digest = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
     return f"{signing_input}.{_b64url(digest)}", expires_at
+
+
+def _resolve_user_id(raw_user_id: str) -> str:
+    raw = str(raw_user_id or "").strip()
+    if raw:
+        try:
+            return str(uuid.UUID(raw))
+        except ValueError:
+            pass
+    return str(uuid.uuid4())
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -110,7 +123,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             )
             if not secret:
                 raise ValueError("JWT_ACCESS_SECRET is not set for the local tester.")
-            user_id = str(payload.get("user_id") or "").strip() or str(uuid.uuid4())
+            user_id = _resolve_user_id(str(payload.get("user_id") or "").strip())
             ttl = int(payload.get("ttl_seconds") or TOKEN_TTL_SECONDS)
             ttl = max(60, min(ttl, 24 * 60 * 60))
             token, expires_at = _make_jwt(secret=secret, user_id=user_id, ttl_seconds=ttl)
@@ -146,9 +159,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 value = self.headers.get(key)
                 if value:
                     headers[key] = value
+            headers.setdefault(
+                "user-agent",
+                (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/148.0.0.0 Safari/537.36"
+                ),
+            )
 
             request = urllib.request.Request(url, data=body, headers=headers, method=method)
-            context = ssl.create_default_context()
+            context = ssl.create_default_context(cafile=certifi.where())
             try:
                 with urllib.request.urlopen(request, timeout=600, context=context) as response:
                     content = response.read()

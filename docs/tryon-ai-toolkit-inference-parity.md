@@ -1,5 +1,9 @@
 # Try-On AI-Toolkit Inference Parity
 
+> Historical note: this document records the pre-diffusers AI-Toolkit parity work. The current
+> `/v1/tryon` runtime shares the resident diffusers Qwen backend with wardrobe; see
+> `docs/tryon-flow.md` for the current implementation.
+
 ## Purpose
 
 This document defines what must change in `/v1/tryon` to match the quality we saw from the AI-Toolkit training samples and the RunPod Gradio tester.

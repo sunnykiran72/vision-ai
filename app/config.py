@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.constants import tryon as tryon_constants
+
 TRYON_SPECIALIST_KEYS = ("top", "bottom", "dress", "multi")
 RESIDENT_RUNTIME_KEYS = ("wardrobe", "tryon", "upscale")
 
@@ -38,10 +40,6 @@ class Settings(BaseSettings):
     )
     qwen_image_edit_dtype: str = Field(default="bfloat16", alias="QWEN_IMAGE_EDIT_DTYPE")
     qwen_compile: bool = Field(default=False, alias="QWEN_COMPILE")
-    ai_toolkit_root: str = Field(
-        default="/workspace/ai-toolkit",
-        alias="AI_TOOLKIT_ROOT",
-    )
 
     wardrobe_lora_top_path: str = Field(default="", alias="WARDROBE_LORA_TOP_PATH")
     wardrobe_lora_bottom_path: str = Field(default="", alias="WARDROBE_LORA_BOTTOM_PATH")
@@ -82,13 +80,19 @@ class Settings(BaseSettings):
     )
     glamify_api_base_url: str = Field(default="", alias="GLAMIFY_API_BASE_URL")
 
-    tryon_lora_path: str = Field(default="", alias="TRYON_LORA_PATH")
-    tryon_lora_weight_name: str = Field(default="", alias="TRYON_LORA_WEIGHT_NAME")
-    tryon_lora_rank: int = Field(default=16, alias="TRYON_LORA_RANK")
-    tryon_lora_alpha: int = Field(default=16, alias="TRYON_LORA_ALPHA")
-    tryon_lora_scale: float = Field(default=1.0, alias="TRYON_LORA_SCALE")
+    tryon_lora_rank: int = Field(
+        default=tryon_constants.DEFAULT_LORA_RANK,
+        alias="TRYON_LORA_RANK",
+    )
+    tryon_lora_alpha: int = Field(
+        default=tryon_constants.DEFAULT_LORA_ALPHA,
+        alias="TRYON_LORA_ALPHA",
+    )
+    tryon_lora_scale: float = Field(
+        default=tryon_constants.DEFAULT_LORA_SCALE,
+        alias="TRYON_LORA_SCALE",
+    )
 
-    tryon_use_specialists: bool = Field(default=False, alias="TRYON_USE_SPECIALISTS")
     tryon_enabled_specialists: str = Field(
         default="top,bottom,dress,multi",
         alias="TRYON_ENABLED_SPECIALISTS",
@@ -98,44 +102,40 @@ class Settings(BaseSettings):
     tryon_lora_dress_path: str = Field(default="", alias="TRYON_LORA_DRESS_PATH")
     tryon_lora_multi_path: str = Field(default="", alias="TRYON_LORA_MULTI_PATH")
     tryon_prompt_trigger_top: str = Field(
-        default="Apply GlamifyTopTryon on this person",
+        default=tryon_constants.PROMPT_TRIGGER_TOP,
         alias="TRYON_PROMPT_TRIGGER_TOP",
     )
     tryon_prompt_trigger_bottom: str = Field(
-        default="Apply GlamifyBottomTryon on this person",
+        default=tryon_constants.PROMPT_TRIGGER_BOTTOM,
         alias="TRYON_PROMPT_TRIGGER_BOTTOM",
     )
     tryon_prompt_trigger_dress: str = Field(
-        default="Apply GlamifyDressTryon on this person",
+        default=tryon_constants.PROMPT_TRIGGER_DRESS,
         alias="TRYON_PROMPT_TRIGGER_DRESS",
     )
     tryon_prompt_trigger_multi: str = Field(
-        default="Apply GlamifyMultiTryon on this person",
+        default=tryon_constants.PROMPT_TRIGGER_MULTI,
         alias="TRYON_PROMPT_TRIGGER_MULTI",
     )
     tryon_prompt_identity_clause: str = Field(
-        default="Preserve the person's face, identity, body proportions, pose, and background.",
+        default=tryon_constants.IDENTITY_CLAUSE,
         alias="TRYON_PROMPT_IDENTITY_CLAUSE",
     )
 
-    tryon_default_seed: int = Field(default=43, alias="TRYON_DEFAULT_SEED")
-    tryon_default_steps: int = Field(default=25, alias="TRYON_DEFAULT_STEPS")
+    tryon_default_seed: int = Field(
+        default=tryon_constants.DEFAULT_SEED,
+        alias="TRYON_DEFAULT_SEED",
+    )
+    tryon_default_steps: int = Field(
+        default=tryon_constants.DEFAULT_STEPS,
+        alias="TRYON_DEFAULT_STEPS",
+    )
     tryon_default_guidance_scale: float = Field(
-        default=1.0,
+        default=tryon_constants.DEFAULT_GUIDANCE_SCALE,
         alias="TRYON_DEFAULT_GUIDANCE_SCALE",
     )
-    tryon_guidance_rescale: float = Field(default=0.0, alias="TRYON_GUIDANCE_RESCALE")
-    tryon_do_cfg_norm: bool = Field(default=False, alias="TRYON_DO_CFG_NORM")
-    tryon_sampler: str = Field(default="flowmatch", alias="TRYON_SAMPLER")
-    tryon_dimension_multiple: int = Field(default=64, alias="TRYON_DIMENSION_MULTIPLE")
-    tryon_queue_max_size: int = Field(default=8, alias="TRYON_QUEUE_MAX_SIZE")
-    tryon_queue_wait_timeout_seconds: int = Field(
-        default=30,
-        alias="TRYON_QUEUE_WAIT_TIMEOUT_SECONDS",
-    )
-    tryon_work_root: str = Field(default="/tmp/glamify/tryon", alias="TRYON_WORK_ROOT")
     tryon_storage_prefix: str = Field(
-        default="wardrobe_output/tryon",
+        default=tryon_constants.STORAGE_PREFIX,
         alias="TRYON_STORAGE_PREFIX",
     )
 
@@ -199,25 +199,19 @@ def validate_startup_settings(settings: Settings) -> None:
         )
 
     if "tryon" in enabled_runtimes:
-        # Try-on still runs on the AI-Toolkit backend.
-        required_values["AI_TOOLKIT_ROOT"] = settings.ai_toolkit_root
+        # Try-on shares the resident diffusers QwenImageEditPlus backend with wardrobe.
         required_values["QWEN_IMAGE_EDIT_MODEL_PATH"] = settings.qwen_image_edit_model_path
-        path_fields["AI_TOOLKIT_ROOT"] = settings.ai_toolkit_root
         path_fields["QWEN_IMAGE_EDIT_MODEL_PATH"] = settings.qwen_image_edit_model_path
-        if settings.tryon_use_specialists:
-            enabled_specialists = get_enabled_tryon_specialists(settings)
-            specialist_paths = {
-                f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
-                    settings,
-                    specialist,
-                )
-                for specialist in enabled_specialists
-            }
-            required_values.update(specialist_paths)
-            path_fields.update(specialist_paths)
-        else:
-            required_values["TRYON_LORA_PATH"] = settings.tryon_lora_path
-            path_fields["TRYON_LORA_PATH"] = settings.tryon_lora_path
+        enabled_specialists = get_enabled_tryon_specialists(settings)
+        specialist_paths = {
+            f"TRYON_LORA_{specialist.upper()}_PATH": _tryon_specialist_path(
+                settings,
+                specialist,
+            )
+            for specialist in enabled_specialists
+        }
+        required_values.update(specialist_paths)
+        path_fields.update(specialist_paths)
 
     if "upscale" in enabled_runtimes:
         required_values.update(

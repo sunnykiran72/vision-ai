@@ -1,6 +1,6 @@
 # Vision-AI Deployment & Setup
 
-How to install, configure, and run the bundled vision-ai service on a fresh RunPod pod backed by a
+How to install, configure, and run the bundled glamify-image-ai service on a fresh RunPod pod backed by a
 network volume. The service exposes all 4 GPU APIs (`/v1/wardrobe`, `/v1/tryon`, `/v1/upscale`,
 `/v1/user_validation`) from one process on **port 8000**.
 
@@ -36,7 +36,7 @@ Pick a volume mount (RunPod volumes usually mount at `/workspace`). Suggested la
 
 ```text
 /workspace/
-  vision-ai/                      # this repo
+  glamify-image-ai/               # this repo
   models/
     qwen-image-edit-2511/         # Qwen Image Edit Plus base
     minicpm-v-4_5/                # MiniCPM-V-4.5 (or use HF id + HF_HOME cache)
@@ -58,7 +58,7 @@ downloads.
 ## 3. Install the GPU stack
 
 ```bash
-cd /workspace/vision-ai
+cd /workspace/glamify-image-ai
 export HF_HOME=/workspace/hf_cache
 bash scripts/install_gpu_stack.sh           # pinned reference versions, Python 3.12
 python3.12 scripts/validate_gpu_stack.py    # must print RESULT: PASS
@@ -86,7 +86,7 @@ export MINICPM_ATTENTION_BACKEND=TRITON_ATTN
 | SeedVR2 7B fp8 | `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors` + the CLI repo | upscale |
 | fashion-object-detection | `yainage90/fashion-object-detection` (auto) | wardrobe gate |
 | Marqo fashionSigLIP | `Marqo/marqo-fashionSigLIP` (auto, open_clip) | wardrobe category |
-| Try-on LoRAs + AI-Toolkit | only if `tryon` is in `RESIDENT_RUNTIMES` | tryon |
+| Try-on LoRAs | only if `tryon` is in `RESIDENT_RUNTIMES`; copy to `loras/tryon/` | tryon |
 
 ## 5. Configure `.env`
 
@@ -94,7 +94,7 @@ Copy `.env.example` to `.env` and fill it in. Minimum for a wardrobe + upscale p
 
 ```bash
 APP_ENV=runpod
-RESIDENT_RUNTIMES=wardrobe,upscale          # add 'tryon' only when its LoRAs/AI-Toolkit are staged
+RESIDENT_RUNTIMES=wardrobe,upscale          # add 'tryon' only when its LoRAs are staged
 SYSTEM_QUEUE_MAX_SIZE=8
 SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS=30
 
@@ -127,17 +127,23 @@ UPSCALE_MODEL_PATH=/workspace/models/seedvr2
 UPSCALE_MODEL_VARIANT=seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors
 UPSCALE_CLI_PATH=/workspace/seedvr2_eval/ComfyUI-SeedVR2_VideoUpscaler/inference_cli.py
 
+TRYON_LORA_TOP_PATH=/workspace/loras/tryon/top.safetensors
+TRYON_LORA_BOTTOM_PATH=/workspace/loras/tryon/bottom.safetensors
+TRYON_LORA_DRESS_PATH=/workspace/loras/tryon/dress.safetensors
+TRYON_LORA_MULTI_PATH=/workspace/loras/tryon/multi.safetensors
+TRYON_DEFAULT_STEPS=12
+
 GLAMIFY_API_BASE_URL=<glamify backend base url>
 ```
 
 Startup validation only requires the config for the runtimes in `RESIDENT_RUNTIMES`
-(`app/config.py:validate_startup_settings`). `AI_TOOLKIT_ROOT` is required only when `tryon` is
-resident.
+(`app/config.py:validate_startup_settings`). Try-on shares the diffusers Qwen runtime with
+wardrobe, so `AI_TOOLKIT_ROOT` is not required.
 
 ## 6. Run on port 8000
 
 ```bash
-cd /workspace/vision-ai
+cd /workspace/glamify-image-ai
 export PORT=8000
 python3.12 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```

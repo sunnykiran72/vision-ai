@@ -10,12 +10,14 @@ from PIL import Image
 
 from app.config import Settings
 from app.constants import wardrobe as wardrobe_constants
+from app.runtime.tryon_types import TryonRunResult, TryonRuntimeStatus
 from app.runtime.wardrobe_types import WardrobeRunResult, WardrobeRuntimeStatus
 
 logger = logging.getLogger("glamify-ai")
 
 BACKEND_NAME = "diffusers_qwen_image_edit_plus"
 WARDROBE_CATEGORIES: tuple[str, ...] = ("top", "bottom", "dress")
+TRYON_CATEGORIES: tuple[str, ...] = ("top", "bottom", "dress", "multi")
 
 
 class WardrobeDiffusersRuntimeError(RuntimeError):
@@ -65,6 +67,12 @@ class QwenDiffusersWardrobeEngine:
             "bottom": Path(settings.wardrobe_lora_bottom_path).expanduser(),
             "dress": Path(settings.wardrobe_lora_dress_path).expanduser(),
         }
+        self._tryon_lora_paths: dict[str, Path] = {
+            "top": Path(settings.tryon_lora_top_path).expanduser(),
+            "bottom": Path(settings.tryon_lora_bottom_path).expanduser(),
+            "dress": Path(settings.tryon_lora_dress_path).expanduser(),
+            "multi": Path(settings.tryon_lora_multi_path).expanduser(),
+        }
         self._pipeline: Any | None = None
         self._torch: Any | None = None
         self._loaded_loras: set[str] = set()
@@ -81,7 +89,7 @@ class QwenDiffusersWardrobeEngine:
     def warmup(self) -> None:
         self._ensure_pipeline()
         for category in WARDROBE_CATEGORIES:
-            self._ensure_lora(category)
+            self._ensure_lora("wardrobe", category)
         warm = Image.new(
             "RGB",
             (wardrobe_constants.OUTPUT_WIDTH, wardrobe_constants.OUTPUT_HEIGHT),
@@ -113,11 +121,35 @@ class QwenDiffusersWardrobeEngine:
             time.perf_counter() - started,
         )
 
+    def warmup_tryon(self) -> None:
+        self._ensure_pipeline()
+        for category in self._expected_tryon_lora_keys():
+            self._ensure_lora("tryon", category)
+        logger.info(
+            "Qwen tryon diffusers adapters ready (device=%s, dtype=%s, loras=%s)",
+            self._device,
+            self._dtype_name,
+            sorted(
+                adapter
+                for adapter in self._loaded_loras
+                if adapter.startswith("tryon_")
+            ),
+        )
+
     def status(self) -> WardrobeRuntimeStatus:
         return WardrobeRuntimeStatus(
             loaded=self._pipeline is not None,
             backend=BACKEND_NAME if self._pipeline is not None else None,
-            loras_loaded=set(self._loaded_loras) >= set(WARDROBE_CATEGORIES),
+            loras_loaded={_adapter_name("wardrobe", key) for key in WARDROBE_CATEGORIES}
+            <= self._loaded_loras,
+        )
+
+    def tryon_status(self) -> TryonRuntimeStatus:
+        expected = self._expected_tryon_lora_keys()
+        return TryonRuntimeStatus(
+            loaded=self._pipeline is not None,
+            backend=BACKEND_NAME if self._pipeline is not None else None,
+            lora_loaded={_adapter_name("tryon", key) for key in expected} <= self._loaded_loras,
         )
 
     # ----- inference -------------------------------------------------------
@@ -202,11 +234,71 @@ class QwenDiffusersWardrobeEngine:
         )
         return out, float(round(time.perf_counter() - started_at, 3))
 
+    def run_tryon(
+        self,
+        *,
+        person_image: Image.Image,
+        garment_reference_image: Image.Image,
+        prompt: str,
+        steps: int,
+        guidance_scale: float,
+        seed: int,
+        output_width: int,
+        output_height: int,
+        lora_key: str | None = None,
+    ) -> TryonRunResult:
+        category = self._resolve_tryon_lora_key(lora_key)
+        started_at = time.perf_counter()
+        image = self._generate(
+            namespace="tryon",
+            category=category,
+            images=[person_image.convert("RGB"), garment_reference_image.convert("RGB")],
+            prompt=str(prompt).strip(),
+            steps=int(steps),
+            seed=int(seed),
+            width=int(output_width),
+            height=int(output_height),
+            lora_scale=float(self._settings.tryon_lora_scale),
+            true_cfg_scale=float(guidance_scale),
+        )
+        metadata = {
+            "backend": BACKEND_NAME,
+            "architecture": "qwen_image_edit_plus",
+            "engine": "diffusers",
+            "feature": "tryon",
+            "model_source": str(self._model_path),
+            "checkpoint_path": str(self._tryon_lora_paths[category]),
+            "lora_key": category,
+            "lora_rank": int(self._settings.tryon_lora_rank),
+            "lora_alpha": int(self._settings.tryon_lora_alpha),
+            "lora_scale": float(self._settings.tryon_lora_scale),
+            "true_cfg_scale": float(guidance_scale),
+            "seed": int(seed),
+            "steps": int(steps),
+            "control_order": {
+                "image_1": "person",
+                "image_2": "garment_reference",
+            },
+            "output_size": {
+                "width": int(output_width),
+                "height": int(output_height),
+            },
+            "dtype": self._dtype_name,
+            "device": self._device,
+            "compiled": self._compiled,
+        }
+        return TryonRunResult(
+            image=image,
+            metadata=metadata,
+            wall_seconds=float(round(time.perf_counter() - started_at, 3)),
+        )
+
     # ----- internals -------------------------------------------------------
 
     def _generate(
         self,
         *,
+        namespace: str = "wardrobe",
         category: str,
         images: Any,
         prompt: str,
@@ -215,26 +307,28 @@ class QwenDiffusersWardrobeEngine:
         width: int,
         height: int,
         lora_scale: float,
+        true_cfg_scale: float = wardrobe_constants.GENERATION_TRUE_CFG_SCALE,
     ) -> Image.Image:
         self._ensure_pipeline()
-        self._ensure_lora(category)
+        self._ensure_lora(namespace, category)
         if self._pipeline is None or self._torch is None:
             raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
         self._ensure_compiled()
+        adapter = _adapter_name(namespace, category)
         with self._infer_lock:
-            self._pipeline.set_adapters([category], [float(lora_scale)])
+            self._pipeline.set_adapters([adapter], [float(lora_scale)])
             generator = self._torch.Generator(device=self._device).manual_seed(int(seed))
             with self._torch.inference_mode():
                 result = self._pipeline(
                     image=images,
                     prompt=prompt,
-                    true_cfg_scale=float(wardrobe_constants.GENERATION_TRUE_CFG_SCALE),
+                    true_cfg_scale=float(true_cfg_scale),
                     num_inference_steps=int(steps),
                     height=int(height),
                     width=int(width),
                     generator=generator,
                 )
-            self._active_lora = category
+            self._active_lora = adapter
         produced = getattr(result, "images", None) or []
         if not produced:
             raise WardrobeDiffusersGenerationError("Qwen wardrobe pipeline returned no images.")
@@ -310,15 +404,16 @@ class QwenDiffusersWardrobeEngine:
                 len(blocks),
             )
 
-    def _ensure_lora(self, category: str) -> None:
-        if category in self._loaded_loras:
+    def _ensure_lora(self, namespace: str, category: str) -> None:
+        adapter = _adapter_name(namespace, category)
+        if adapter in self._loaded_loras:
             return
         if self._pipeline is None:
             raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
-        path = self._lora_paths[category]
+        path = self._lora_path(namespace, category)
         if not path.exists():
             raise WardrobeDiffusersRuntimeError(
-                f"Wardrobe extraction LoRA missing for '{category}': {path}",
+                f"{namespace.capitalize()} LoRA missing for '{category}': {path}",
             )
         try:
             from safetensors.torch import load_file  # type: ignore[import-not-found]
@@ -338,9 +433,27 @@ class QwenDiffusersWardrobeEngine:
             ): value
             for key, value in state_dict.items()
         }
-        self._pipeline.load_lora_weights(remapped, adapter_name=category)
-        self._loaded_loras.add(category)
-        logger.info("Loaded wardrobe extraction LoRA '%s' from %s", category, path)
+        self._pipeline.load_lora_weights(remapped, adapter_name=adapter)
+        self._loaded_loras.add(adapter)
+        logger.info("Loaded %s LoRA '%s' as adapter '%s' from %s", namespace, category, adapter, path)
+
+    def _lora_path(self, namespace: str, category: str) -> Path:
+        if namespace == "wardrobe":
+            return self._lora_paths[category]
+        if namespace == "tryon":
+            return self._tryon_lora_paths[category]
+        raise WardrobeDiffusersRuntimeError(f"Unknown LoRA namespace: {namespace}")
+
+    def _expected_tryon_lora_keys(self) -> tuple[str, ...]:
+        return TRYON_CATEGORIES
+
+    def _resolve_tryon_lora_key(self, lora_key: str | None) -> str:
+        resolved = str(lora_key or "").strip().lower()
+        if resolved not in TRYON_CATEGORIES:
+            raise WardrobeDiffusersRuntimeError(
+                "lora_key is required and must be one of " + ", ".join(TRYON_CATEGORIES) + ".",
+            )
+        return resolved
 
 
 def _resolve_torch_dtype(*, torch_module: Any, requested: str, device: str) -> Any:
@@ -370,3 +483,7 @@ def _resolve_torch_dtype(*, torch_module: Any, requested: str, device: str) -> A
             "QWEN_IMAGE_EDIT_DTYPE=float8_e4m3fn requires a PyTorch build with float8_e4m3fn.",
         )
     return getattr(torch_module, dtype_name)
+
+
+def _adapter_name(namespace: str, category: str) -> str:
+    return f"{namespace}_{category}"

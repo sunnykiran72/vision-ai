@@ -31,6 +31,14 @@ def get_wardrobe_runner(settings: Settings | None = None) -> QwenDiffusersWardro
         resolved_settings.wardrobe_lora_top_path,
         resolved_settings.wardrobe_lora_bottom_path,
         resolved_settings.wardrobe_lora_dress_path,
+        resolved_settings.tryon_enabled_specialists,
+        resolved_settings.tryon_lora_top_path,
+        resolved_settings.tryon_lora_bottom_path,
+        resolved_settings.tryon_lora_dress_path,
+        resolved_settings.tryon_lora_multi_path,
+        resolved_settings.tryon_lora_rank,
+        resolved_settings.tryon_lora_alpha,
+        resolved_settings.tryon_lora_scale,
     )
 
 
@@ -42,6 +50,14 @@ def _get_wardrobe_runner_cached(
     wardrobe_lora_top_path: str,
     wardrobe_lora_bottom_path: str,
     wardrobe_lora_dress_path: str,
+    tryon_enabled_specialists: str,
+    tryon_lora_top_path: str,
+    tryon_lora_bottom_path: str,
+    tryon_lora_dress_path: str,
+    tryon_lora_multi_path: str,
+    tryon_lora_rank: int,
+    tryon_lora_alpha: int,
+    tryon_lora_scale: float,
 ) -> QwenDiffusersWardrobeEngine:
     settings = Settings(
         QWEN_IMAGE_EDIT_MODEL_PATH=qwen_image_edit_model_path,
@@ -50,6 +66,14 @@ def _get_wardrobe_runner_cached(
         WARDROBE_LORA_TOP_PATH=wardrobe_lora_top_path,
         WARDROBE_LORA_BOTTOM_PATH=wardrobe_lora_bottom_path,
         WARDROBE_LORA_DRESS_PATH=wardrobe_lora_dress_path,
+        TRYON_ENABLED_SPECIALISTS=tryon_enabled_specialists,
+        TRYON_LORA_TOP_PATH=tryon_lora_top_path,
+        TRYON_LORA_BOTTOM_PATH=tryon_lora_bottom_path,
+        TRYON_LORA_DRESS_PATH=tryon_lora_dress_path,
+        TRYON_LORA_MULTI_PATH=tryon_lora_multi_path,
+        TRYON_LORA_RANK=tryon_lora_rank,
+        TRYON_LORA_ALPHA=tryon_lora_alpha,
+        TRYON_LORA_SCALE=tryon_lora_scale,
     )
     return QwenDiffusersWardrobeEngine(settings)
 

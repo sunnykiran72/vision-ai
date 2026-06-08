@@ -1,5 +1,9 @@
 # Try-On Specialist Multi-LoRA — Implementation
 
+> Historical note: this document describes the previous AI-Toolkit specialist implementation. The
+> current `/v1/tryon` runtime uses namespaced diffusers adapters on the shared Qwen backend; see
+> `docs/tryon-flow.md` for the current implementation.
+
 ## Purpose
 
 This document describes the **as-built** state of the `/v1/tryon` specialist multi-LoRA implementation in the Python AI service.

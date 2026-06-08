@@ -60,8 +60,6 @@ def _ensure_enabled(
     settings: Settings,
     decision: TryonRoutingDecision,
 ) -> TryonRoutingDecision:
-    if settings.tryon_use_specialists and decision.lora_key not in get_enabled_tryon_specialists(
-        settings,
-    ):
+    if decision.lora_key not in get_enabled_tryon_specialists(settings):
         raise ValueError(f"Try-on specialist is not enabled: {decision.lora_key}")
     return decision

@@ -28,7 +28,13 @@ def build_health_response(settings: Settings) -> HealthResponse:
         or settings.wardrobe_lora_dress_path
     ):
         configured_domains.append("wardrobe")
-    if settings.qwen_image_edit_model_path or settings.tryon_lora_path:
+    if (
+        settings.qwen_image_edit_model_path
+        or settings.tryon_lora_top_path
+        or settings.tryon_lora_bottom_path
+        or settings.tryon_lora_dress_path
+        or settings.tryon_lora_multi_path
+    ):
         configured_domains.append("tryon")
     if settings.upscale_model_path:
         configured_domains.append("upscale")
@@ -86,6 +92,6 @@ def build_health_response(settings: Settings) -> HealthResponse:
     )
     return HealthResponse(
         status="ok",
-        service="glamify-vision-ai",
+        service="glamify-image-ai",
         metadata=metadata,
     )

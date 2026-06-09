@@ -34,7 +34,10 @@ $PY -m pip install "diffusers==0.38.0" "accelerate>=1.0" "safetensors>=0.4"
 # 5) open_clip for the Marqo fashionSigLIP classifier.
 $PY -m pip install "open_clip_torch>=2.24"
 
-# 6) the service's own (light) deps.
+# 6) OpenCV for user-image blur/sharpness scoring.
+$PY -m pip install "opencv-python-headless>=4.10,<5"
+
+# 7) the service's own (light) deps.
 $PY -m pip install \
   "fastapi>=0.115,<1.0" "uvicorn[standard]>=0.30,<1.0" "python-multipart>=0.0.9,<1.0" \
   "pydantic>=2.8,<3.0" "pydantic-settings>=2.4,<3.0" "PyJWT>=2.9,<3.0" \

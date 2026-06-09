@@ -33,6 +33,10 @@ class Settings(BaseSettings):
         alias="AZURE_STORAGE_CONNECTION_STRING",
     )
     azure_storage_container: str = Field(default="", alias="AZURE_STORAGE_CONTAINER")
+    azure_user_image_container: str = Field(
+        default="user-images",
+        alias="AZURE_USER_IMAGE_CONTAINER",
+    )
 
     qwen_image_edit_model_path: str = Field(
         default="/workspace/models/qwen-image-edit-2511",

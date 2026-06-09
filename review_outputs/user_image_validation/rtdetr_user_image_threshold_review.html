@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User Image Validation Threshold Review</title>
+  <style>
+    body { margin: 0; background: #f7f8fa; color: #111827; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: 0; }
+    h2 { margin: 0 0 10px; font-size: 15px; line-height: 1.35; word-break: break-word; letter-spacing: 0; }
+    h3 { margin: 0 0 10px; font-size: 18px; letter-spacing: 0; }
+    p { color: #667085; line-height: 1.5; }
+    .intro { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); gap: 16px; margin: 18px 0; }
+    .panel, .card { background: #fff; border: 1px solid #d9dde5; border-radius: 8px; overflow: hidden; }
+    .panel { padding: 16px; }
+    .rules { display: grid; gap: 10px; }
+    .rule { border: 1px solid #edf0f5; border-radius: 8px; padding: 12px; }
+    .rule code { display: inline-block; color: #111827; background: #f2f4f7; border-radius: 6px; padding: 3px 6px; font-size: 13px; }
+    .rule p { margin: 7px 0 0; }
+    .legend { display: grid; gap: 12px; }
+    .legend-row { display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: start; }
+    .swatch { width: 44px; height: 30px; border-radius: 6px; border: 4px solid; background: rgba(0,0,0,.04); }
+    .green { border-color: #14b86a; background: rgba(20,184,106,.16); }
+    .orange { border-color: #f97316; background: rgba(249,115,22,.16); }
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pill { border: 1px solid #d9dde5; border-radius: 999px; padding: 5px 10px; color: #667085; font-size: 12px; font-variant-numeric: tabular-nums; background: #fff; }
+    .pill.ok { color: #0f8a45; border-color: #a8dfbd; background: #eefbf3; }
+    .pill.bad { color: #b42318; border-color: #f3b6b1; background: #fff1f0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 18px; }
+    .card.ok { border-top: 4px solid #0f8a45; }
+    .card.bad { border-top: 4px solid #b42318; }
+    .media { background: #e9edf3; display: grid; place-items: center; min-height: 360px; }
+    img { display: block; max-width: 100%; max-height: 760px; object-fit: contain; }
+    .meta { padding: 14px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 10px; }
+    dl div { border: 1px solid #edf0f5; border-radius: 6px; padding: 8px; }
+    dt { color: #667085; font-size: 11px; text-transform: uppercase; letter-spacing: 0; }
+    dd { margin: 2px 0 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    @media (max-width: 860px) { main { padding: 14px; } .intro, .grid { grid-template-columns: 1fr; } .media { min-height: 260px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>User Image Validation Threshold Review</h1>
+      <p>This report shows what RT-DETR selected visually and explains the candidate rules we tested against the accepted image folder.</p>
+      <div class="summary">
+        <span class="pill ok">accepted: 28 / 28</span>
+        <span class="pill">primary score >= 0.5</span>
+        <span class="pill">height >= 0.4</span>
+        <span class="pill">area >= 0.12</span>
+        <span class="pill">bottom >= 0.6</span>
+        <span class="pill">blur >= 45.0</span>
+      </div>
+    </header>
+
+    <section class="intro">
+      <div class="panel">
+        <h3>Color Legend</h3>
+        <div class="legend">
+          <div class="legend-row">
+            <div class="swatch green"></div>
+            <div><strong>Green box</strong><p>The selected primary person. This is the highest-confidence person detection and the one used for score, height ratio, area ratio, bottom ratio, and final validation.</p></div>
+          </div>
+          <div class="legend-row">
+            <div class="swatch orange"></div>
+            <div><strong>Orange box</strong><p>Other person detections found during low-threshold analysis. These are not the selected primary person. In production we should only reject if a second person is large enough, not just because an orange box exists.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Candidate Rules</h3>
+        <div class="rules">
+          <div class="rule"><code>primary_person_score >= 0.50</code><p>RT-DETR must be reasonably confident the selected primary object is a person.</p></div>
+          <div class="rule"><code>height_ratio >= 0.40</code><p>The selected person box must cover at least 40% of the image height, so the person is not tiny in the background.</p></div>
+          <div class="rule"><code>area_ratio >= 0.12</code><p>The selected person box must cover at least 12% of the full image area, so the person is a meaningful subject.</p></div>
+          <div class="rule"><code>bottom_ratio >= 0.60</code><p>The selected person box must extend at least 60% down the image. This rejects face-only/shoulder-only crops while allowing non-full-body photos.</p></div>
+          <div class="rule"><code>blur_score >= 45</code><p>The image must not be extremely blurry. This threshold is permissive because clean studio photos can have lower edge scores.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/001_05METGALA-MOSTSTYLISH-WILLIAMS-jmfg-articleLarge.jpg" alt="05METGALA-MOSTSTYLISH-WILLIAMS-jmfg-articleLarge.webp overlay"></div>
+        <div class="meta">
+          <h2>1. 05METGALA-MOSTSTYLISH-WILLIAMS-jmfg-articleLarge.webp</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.925</span>
+            <span class="pill">people boxes: 110</span>
+            <span class="pill">blur: 790.273</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8631</dd></div>
+            <div><dt>area ratio</dt><dd>0.6296</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9321</dd></div>
+            <div><dt>top ratio</dt><dd>0.069</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/002_10_2536395e-b0a0-4ff6-bde3-2c7e78385953.jpg" alt="10_2536395e-b0a0-4ff6-bde3-2c7e78385953.webp overlay"></div>
+        <div class="meta">
+          <h2>2. 10_2536395e-b0a0-4ff6-bde3-2c7e78385953.webp</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9695</span>
+            <span class="pill">people boxes: 25</span>
+            <span class="pill">blur: 2076.259</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9643</dd></div>
+            <div><dt>area ratio</dt><dd>0.7339</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.981</dd></div>
+            <div><dt>top ratio</dt><dd>0.0168</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/003_51805-punjbi-dress-design-anjali-jani-jacket-pattern-kurta.jpg" alt="51805-punjbi-dress-design-anjali-jani-jacket-pattern-kurta.jpeg overlay"></div>
+        <div class="meta">
+          <h2>3. 51805-punjbi-dress-design-anjali-jani-jacket-pattern-kurta.jpeg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9643</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 2026.923</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9159</dd></div>
+            <div><dt>area ratio</dt><dd>0.4078</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9934</dd></div>
+            <div><dt>top ratio</dt><dd>0.0774</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/004_69e5ac59-9b79-48d5-9c51-437c17390481.jpg" alt="69e5ac59-9b79-48d5-9c51-437c17390481.jpg overlay"></div>
+        <div class="meta">
+          <h2>4. 69e5ac59-9b79-48d5-9c51-437c17390481.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9719</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 181.78</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.6912</dd></div>
+            <div><dt>area ratio</dt><dd>0.3349</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.8867</dd></div>
+            <div><dt>top ratio</dt><dd>0.1956</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/005_6b7fad48-af08-4730-84c0-d30d1e88e33a.jpg" alt="6b7fad48-af08-4730-84c0-d30d1e88e33a.jpg overlay"></div>
+        <div class="meta">
+          <h2>5. 6b7fad48-af08-4730-84c0-d30d1e88e33a.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9083</span>
+            <span class="pill">people boxes: 2</span>
+            <span class="pill">blur: 361.812</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.6809</dd></div>
+            <div><dt>area ratio</dt><dd>0.3165</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9179</dd></div>
+            <div><dt>top ratio</dt><dd>0.237</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/006_A-31-scaled.jpg" alt="A-31-scaled.jpg overlay"></div>
+        <div class="meta">
+          <h2>6. A-31-scaled.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9652</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 243.558</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9117</dd></div>
+            <div><dt>area ratio</dt><dd>0.446</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9956</dd></div>
+            <div><dt>top ratio</dt><dd>0.0839</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/007_ChatGPT Image May 13, 2026, 10_37_27 AM.jpg" alt="ChatGPT Image May 13, 2026, 10_37_27 AM.png overlay"></div>
+        <div class="meta">
+          <h2>7. ChatGPT Image May 13, 2026, 10_37_27 AM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9611</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 710.934</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7959</dd></div>
+            <div><dt>area ratio</dt><dd>0.2955</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9929</dd></div>
+            <div><dt>top ratio</dt><dd>0.197</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/008_ChatGPT Image May 14, 2026, 01_39_56 PM.jpg" alt="ChatGPT Image May 14, 2026, 01_39_56 PM.png overlay"></div>
+        <div class="meta">
+          <h2>8. ChatGPT Image May 14, 2026, 01_39_56 PM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9704</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 172.552</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>1.0</dd></div>
+            <div><dt>area ratio</dt><dd>0.5885</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9995</dd></div>
+            <div><dt>top ratio</dt><dd>-0.0005</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/009_ChatGPT Image May 8, 2026, 01_52_16 PM.jpg" alt="ChatGPT Image May 8, 2026, 01_52_16 PM.png overlay"></div>
+        <div class="meta">
+          <h2>9. ChatGPT Image May 8, 2026, 01_52_16 PM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9677</span>
+            <span class="pill">people boxes: 3</span>
+            <span class="pill">blur: 919.627</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9568</dd></div>
+            <div><dt>area ratio</dt><dd>0.6502</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9933</dd></div>
+            <div><dt>top ratio</dt><dd>0.0364</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/010_ChatGPT Image May 8, 2026, 04_39_14 PM.jpg" alt="ChatGPT Image May 8, 2026, 04_39_14 PM.png overlay"></div>
+        <div class="meta">
+          <h2>10. ChatGPT Image May 8, 2026, 04_39_14 PM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.927</span>
+            <span class="pill">people boxes: 3</span>
+            <span class="pill">blur: 937.5</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.98</dd></div>
+            <div><dt>area ratio</dt><dd>0.3298</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9935</dd></div>
+            <div><dt>top ratio</dt><dd>0.0134</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/011_ChatGPT Image May 8, 2026, 07_02_16 PM.jpg" alt="ChatGPT Image May 8, 2026, 07_02_16 PM.png overlay"></div>
+        <div class="meta">
+          <h2>11. ChatGPT Image May 8, 2026, 07_02_16 PM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9677</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 914.097</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8209</dd></div>
+            <div><dt>area ratio</dt><dd>0.5924</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9748</dd></div>
+            <div><dt>top ratio</dt><dd>0.1539</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/012_Screenshot 2026-03-02 at 1.52.56 PM.jpg" alt="Screenshot 2026-03-02 at 1.52.56 PM.png overlay"></div>
+        <div class="meta">
+          <h2>12. Screenshot 2026-03-02 at 1.52.56 PM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.6199</span>
+            <span class="pill">people boxes: 10</span>
+            <span class="pill">blur: 217.236</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8496</dd></div>
+            <div><dt>area ratio</dt><dd>0.4402</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9728</dd></div>
+            <div><dt>top ratio</dt><dd>0.1232</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/013_Screenshot 2026-06-08 at 12.04.15 AM.jpg" alt="Screenshot 2026-06-08 at 12.04.15 AM.png overlay"></div>
+        <div class="meta">
+          <h2>13. Screenshot 2026-06-08 at 12.04.15 AM.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.8555</span>
+            <span class="pill">people boxes: 97</span>
+            <span class="pill">blur: 928.261</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.777</dd></div>
+            <div><dt>area ratio</dt><dd>0.4002</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9349</dd></div>
+            <div><dt>top ratio</dt><dd>0.1579</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/014_Untitled design (1).jpg" alt="Untitled design (1).jpg overlay"></div>
+        <div class="meta">
+          <h2>14. Untitled design (1).jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9481</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 86.401</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8529</dd></div>
+            <div><dt>area ratio</dt><dd>0.6096</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9689</dd></div>
+            <div><dt>top ratio</dt><dd>0.1161</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/015__app_ai-toolkit_output_qwen_lora_dress_v1_rank16_dev5000_sample_controls_sample_.jpg" alt="_app_ai-toolkit_output_qwen_lora_dress_v1_rank16_dev5000_sample_controls_sample_05_ctrl_img_1.jpg overlay"></div>
+        <div class="meta">
+          <h2>15. _app_ai-toolkit_output_qwen_lora_dress_v1_rank16_dev5000_sample_controls_sample_05_ctrl_img_1.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9649</span>
+            <span class="pill">people boxes: 4</span>
+            <span class="pill">blur: 2773.973</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8434</dd></div>
+            <div><dt>area ratio</dt><dd>0.5215</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.96</dd></div>
+            <div><dt>top ratio</dt><dd>0.1166</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/016__mnt_qwen-garment-extract_eval_samples_extraction_top_1.jpg" alt="_mnt_qwen-garment-extract_eval_samples_extraction_top_1.jpg overlay"></div>
+        <div class="meta">
+          <h2>16. _mnt_qwen-garment-extract_eval_samples_extraction_top_1.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9745</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 11057.621</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.981</dd></div>
+            <div><dt>area ratio</dt><dd>0.7075</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9915</dd></div>
+            <div><dt>top ratio</dt><dd>0.0105</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/017__mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_c.jpg" alt="_mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_control_person_sample_001.jpg overlay"></div>
+        <div class="meta">
+          <h2>17. _mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_control_person_sample_001.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9767</span>
+            <span class="pill">people boxes: 19</span>
+            <span class="pill">blur: 451.631</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9982</dd></div>
+            <div><dt>area ratio</dt><dd>0.9868</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9977</dd></div>
+            <div><dt>top ratio</dt><dd>-0.0005</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/018__mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_c.jpg" alt="_mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_control_person_sample_003.jpg overlay"></div>
+        <div class="meta">
+          <h2>18. _mnt_tryon-data_datasets_qwen-tryon-1496-full-clean-v1_ostris_sample_prompts_8_control_person_sample_003.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9715</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 367.43</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7923</dd></div>
+            <div><dt>area ratio</dt><dd>0.5003</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9498</dd></div>
+            <div><dt>top ratio</dt><dd>0.1575</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/019__mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_4.jpg" alt="_mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_4.jpg overlay"></div>
+        <div class="meta">
+          <h2>19. _mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_4.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9634</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 839.068</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7422</dd></div>
+            <div><dt>area ratio</dt><dd>0.3035</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9503</dd></div>
+            <div><dt>top ratio</dt><dd>0.2081</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/020__mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_5.jpg" alt="_mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_5.jpg overlay"></div>
+        <div class="meta">
+          <h2>20. _mnt_tryon-data_datasets_qwen_lora_glamtoptryon_v1_eval_samples_top_user_5.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9674</span>
+            <span class="pill">people boxes: 4</span>
+            <span class="pill">blur: 379.342</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7299</dd></div>
+            <div><dt>area ratio</dt><dd>0.4015</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9214</dd></div>
+            <div><dt>top ratio</dt><dd>0.1915</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/021_download (8).jpg" alt="download (8).png overlay"></div>
+        <div class="meta">
+          <h2>21. download (8).png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9626</span>
+            <span class="pill">people boxes: 7</span>
+            <span class="pill">blur: 470.256</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9318</dd></div>
+            <div><dt>area ratio</dt><dd>0.3403</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9724</dd></div>
+            <div><dt>top ratio</dt><dd>0.0407</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/022_file (23).jpg" alt="file (23).jpeg overlay"></div>
+        <div class="meta">
+          <h2>22. file (23).jpeg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9662</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 2773.658</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>1.0</dd></div>
+            <div><dt>area ratio</dt><dd>0.7142</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9985</dd></div>
+            <div><dt>top ratio</dt><dd>-0.0015</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/023_gen_e2aed99e-9fdc-4f58-85d3-9c47d8f829ec.jpg" alt="gen_e2aed99e-9fdc-4f58-85d3-9c47d8f829ec.jpg overlay"></div>
+        <div class="meta">
+          <h2>23. gen_e2aed99e-9fdc-4f58-85d3-9c47d8f829ec.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9703</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 95.877</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7824</dd></div>
+            <div><dt>area ratio</dt><dd>0.5168</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.992</dd></div>
+            <div><dt>top ratio</dt><dd>0.2096</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/024_images (1).jpg" alt="images (1).jpeg overlay"></div>
+        <div class="meta">
+          <h2>24. images (1).jpeg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9495</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 595.865</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9716</dd></div>
+            <div><dt>area ratio</dt><dd>0.3392</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9995</dd></div>
+            <div><dt>top ratio</dt><dd>0.0278</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/025_pexels-therealayanfe-9836997.jpg" alt="pexels-therealayanfe-9836997.jpg overlay"></div>
+        <div class="meta">
+          <h2>25. pexels-therealayanfe-9836997.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9591</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 535.226</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.8839</dd></div>
+            <div><dt>area ratio</dt><dd>0.2742</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9952</dd></div>
+            <div><dt>top ratio</dt><dd>0.1113</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/026_pexels-tiger-lily-7108699.jpg" alt="pexels-tiger-lily-7108699.jpg overlay"></div>
+        <div class="meta">
+          <h2>26. pexels-tiger-lily-7108699.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9623</span>
+            <span class="pill">people boxes: 16</span>
+            <span class="pill">blur: 48.711</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.5223</dd></div>
+            <div><dt>area ratio</dt><dd>0.4147</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.6757</dd></div>
+            <div><dt>top ratio</dt><dd>0.1535</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/027_photo-1448376561459-dbe8868fa34c.jpg" alt="photo-1448376561459-dbe8868fa34c.jpg overlay"></div>
+        <div class="meta">
+          <h2>27. photo-1448376561459-dbe8868fa34c.jpg</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.8361</span>
+            <span class="pill">people boxes: 1</span>
+            <span class="pill">blur: 178.203</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.7422</dd></div>
+            <div><dt>area ratio</dt><dd>0.2153</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9708</dd></div>
+            <div><dt>top ratio</dt><dd>0.2286</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+      <article class="card ok">
+        <div class="media"><img src="visual_overlays/028_photo-1585807145425-793be610875c.jpg" alt="photo-1585807145425-793be610875c.png overlay"></div>
+        <div class="meta">
+          <h2>28. photo-1585807145425-793be610875c.png</h2>
+          <div class="pills">
+            <span class="pill ok">accepted</span>
+            <span class="pill">primary score: 0.9694</span>
+            <span class="pill">people boxes: 2</span>
+            <span class="pill">blur: 453.342</span>
+          </div>
+          <dl>
+            <div><dt>height ratio</dt><dd>0.9307</dd></div>
+            <div><dt>area ratio</dt><dd>0.7824</dd></div>
+            <div><dt>bottom ratio</dt><dd>0.9956</dd></div>
+            <div><dt>top ratio</dt><dd>0.065</dd></div>
+          </dl>
+          <p><strong>Candidate rule result:</strong> passes all candidate rules</p>
+        </div>
+      </article>
+    
+    </section>
+  </main>
+</body>
+</html>

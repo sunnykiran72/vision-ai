@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Qwen Wardrobe Extraction Lab (fp8 + cache-dit)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#0d1117; color:#e6edf3; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#8b949e; font-size:13px; margin-bottom:20px; }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:16px; margin-bottom:18px; }
+  label { display:block; font-size:12px; color:#8b949e; margin:0 0 6px; text-transform:uppercase; letter-spacing:.04em; }
+  textarea, input[type=number], input[type=file] { width:100%; background:#0d1117; border:1px solid #30363d; color:#e6edf3; border-radius:8px; padding:9px 10px; font-size:14px; }
+  textarea { min-height:90px; resize:vertical; font-family:inherit; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; }
+  .field { flex:1 1 120px; min-width:110px; }
+  button { background:#238636; border:1px solid #2ea043; color:#fff; font-weight:600; border-radius:8px; padding:10px 18px; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .imgs { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .imgbox { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:10px; }
+  .imgbox h3 { margin:0 0 8px; font-size:13px; color:#58a6ff; }
+  .imgbox .dims { font-size:12px; color:#8b949e; margin-bottom:8px; }
+  .imgbox img { width:100%; height:auto; border-radius:6px; background:#161b22; display:block; }
+  .metrics { display:flex; gap:24px; flex-wrap:wrap; margin-top:6px; }
+  .metrics div { font-size:13px; } .metrics b { color:#e6edf3; font-size:20px; display:block; } .metrics span { color:#8b949e; font-size:11px; }
+  .big { color:#3fb950; } table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 9px; border-bottom:1px solid #21262d; white-space:nowrap; }
+  th { color:#8b949e; font-weight:600; font-size:11px; text-transform:uppercase; }
+  .err { color:#f85149; font-size:13px; margin-top:10px; white-space:pre-wrap; }
+  .pill { font-size:11px; color:#58a6ff; background:#1f6feb22; padding:2px 8px; border-radius:999px; }
+</style>
+</head>
+<body>
+  <h1>Qwen Wardrobe Extraction Lab <span class="pill" id="cfgpill">loading…</span></h1>
+  <div class="sub">fp8-dynamic + compile_repeated_blocks + cache-dit. Pass image, prompt, seed, steps, output dims → get the extracted garment + full latency/metric breakdown. (Changing output dims triggers a one-time recompile.)</div>
+
+  <div class="card">
+    <div class="row">
+      <div class="field" style="flex:2 1 300px">
+        <label>Prompt</label>
+        <textarea id="prompt"></textarea>
+      </div>
+      <div class="field"><label>Seed</label><input type="number" id="seed" value="7777" /></div>
+      <div class="field"><label>Steps</label><input type="number" id="steps" value="15" /></div>
+      <div class="field"><label>Out width</label><input type="number" id="width" value="832" step="16" /></div>
+      <div class="field"><label>Out height</label><input type="number" id="height" value="1248" step="16" /></div>
+      <div class="field"><label>Cache</label><select id="cache" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:8px;padding:9px 10px;font-size:14px;"><option value="0.2" selected>0.20</option><option value="0">0 (no cache)</option></select></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div class="field" style="flex:2 1 300px"><label>Input image</label><input type="file" id="file" accept="image/*" /></div>
+      <div class="field" style="flex:0 0 auto"><button id="run" disabled>Run extraction</button></div>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <div class="imgs">
+      <div class="imgbox"><h3>Input</h3><div class="dims" id="d0"></div><img id="i0" /></div>
+      <div class="imgbox"><h3>Extracted output</h3><div class="dims" id="d1"></div><img id="i1" /></div>
+    </div>
+    <div class="metrics">
+      <div><span>TOTAL</span><b id="mTotal" class="big">-</b></div>
+      <div><span>encode</span><b id="mEnc">-</b></div>
+      <div><span>denoise</span><b id="mDen">-</b></div>
+      <div><span>decode</span><b id="mDec">-</b></div>
+      <div><span>per-step</span><b id="mPer">-</b></div>
+      <div><span>VRAM</span><b id="mVram">-</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Run history (this session)</label>
+    <table><thead><tr>
+      <th>#</th><th>Cache</th><th>Seed</th><th>Steps</th><th>Out dims</th><th>Total s</th><th>Denoise s</th><th>Per-step s</th><th>VRAM</th>
+    </tr></thead><tbody id="hist"></tbody></table>
+  </div>
+
+<script>
+const $=id=>document.getElementById(id);
+const DEFAULT_PROMPT="GlamTopExt. Extract top wear as a standalone product. Target regenerate garment is the garment ; Keep the garment's exact shape, fabric texture, color and print. remove the person, other clothing, background and shadows. fill skin-revealing gaps with clean white. Present it as a centered product on a pure white background with sharp and precise details of original garment.";
+$('prompt').value=DEFAULT_PROMPT;
+let n=0;
+async function status(){
+  try{ const s=await (await fetch('/tools/qwen-lab/status')).json();
+    $('cfgpill').textContent = s.ready ? `${s.category} · cache ${s.cache_thr} · ready` : 'warming up…';
+    $('run').disabled = !s.ready || !$('file').files.length;
+    if(!s.ready) setTimeout(status,4000);
+  }catch(e){ $('cfgpill').textContent='offline'; setTimeout(status,4000); }
+}
+$('file').addEventListener('change',()=>{ $('run').disabled=!$('file').files.length; });
+$('run').addEventListener('click',async()=>{
+  const f=$('file').files[0]; if(!f) return;
+  $('err').textContent=''; $('run').disabled=true; $('run').textContent='Running…';
+  const fd=new FormData();
+  fd.append('image',f); fd.append('prompt',$('prompt').value);
+  fd.append('seed',$('seed').value); fd.append('steps',$('steps').value);
+  fd.append('width',$('width').value); fd.append('height',$('height').value);
+  fd.append('cache_thr',$('cache').value);
+  try{
+    const r=await fetch('/tools/qwen-lab/run',{method:'POST',body:fd});
+    const j=await r.json();
+    if(!j.ok){ $('err').textContent=j.error||'failed'; return; }
+    $('resultCard').style.display='block';
+    $('i0').src=URL.createObjectURL(f); $('d0').textContent=j.meta.input_dims+' → preproc '+j.meta.preprocessed_dims;
+    $('i1').src=j.output_image; $('d1').textContent=j.meta.output_dims;
+    $('mTotal').textContent=j.timings.total_s+'s'; $('mEnc').textContent=j.timings.encode_s+'s';
+    $('mDen').textContent=j.timings.denoise_s+'s'; $('mDec').textContent=j.timings.decode_s+'s';
+    $('mPer').textContent=j.timings.per_step_s+'s'; $('mVram').textContent=j.meta.vram_gb+'GB';
+    n++; const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${n}</td><td>${j.meta.cache_thr}</td><td>${j.meta.seed}</td><td>${j.meta.steps}</td><td>${j.meta.output_dims}</td>`+
+      `<td><b>${j.timings.total_s}</b></td><td>${j.timings.denoise_s}</td><td>${j.timings.per_step_s}</td><td>${j.meta.vram_gb}GB</td>`;
+    $('hist').prepend(tr);
+  }catch(e){ $('err').textContent='request error: '+e; }
+  finally{ $('run').disabled=false; $('run').textContent='Run extraction'; }
+});
+status();
+</script>
+</body>
+</html>

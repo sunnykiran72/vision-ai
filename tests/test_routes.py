@@ -5,10 +5,12 @@ from app.main import app
 from app.models.minicpm import MiniCPMGarmentResponse, MiniCPMGarmentResult
 from app.models.tryon import TryonResponse, TryonResponseData
 from app.models.upscale import UpscaleResponse, UpscaleResponseData
+from app.models.user_validation import UserValidationResponse, UserValidationResult
 from app.models.wardrobe import WardrobeAnalyzeResponse, WardrobeAnalyzeResult
 from app.routes import minicpm as minicpm_route
 from app.routes import tryon as tryon_route
 from app.routes import upscale as upscale_route
+from app.routes import user_validation as user_validation_route
 from app.routes import wardrobe as wardrobe_route
 
 client = TestClient(app)
@@ -64,10 +66,52 @@ def test_wardrobe_route_uses_multipart_request(
     assert response.json()["data"]["type"] == "top"
 
 
-def test_user_validation_route_exists(auth_header: dict[str, str]) -> None:
+def test_user_validation_route_requires_multipart_image(auth_header: dict[str, str]) -> None:
     response = client.post("/v1/user_validation", headers=auth_header)
+    assert response.status_code == 422
+    assert response.json()["data"] is None
+
+
+def test_user_validation_route_uses_multipart_request(
+    monkeypatch: MonkeyPatch,
+    auth_header: dict[str, str],
+    auth_user_id: str,
+) -> None:
+    def fake_run_user_validation_request(
+        image_bytes: bytes,
+        *,
+        filename: str,
+        content_type: str | None,
+        user_id: str,
+    ) -> UserValidationResponse:
+        assert image_bytes == b"user-image-bytes"
+        assert filename == "person.jpg"
+        assert content_type == "image/jpeg"
+        assert user_id == auth_user_id
+        return UserValidationResponse(
+            status=200,
+            message="",
+            data=UserValidationResult(
+                image="https://blob.example.com/user.jpg",
+                metadata={"feature": "user_validation"},
+            ),
+        )
+
+    monkeypatch.setattr(
+        user_validation_route,
+        "run_user_validation_request",
+        fake_run_user_validation_request,
+    )
+
+    response = client.post(
+        "/v1/user_validation",
+        headers=auth_header,
+        files={"image": ("person.jpg", b"user-image-bytes", "image/jpeg")},
+    )
+
     assert response.status_code == 200
-    assert response.json()["feature"] == "user_validation"
+    assert response.json()["data"]["image"] == "https://blob.example.com/user.jpg"
+    assert response.json()["data"]["metadata"]["feature"] == "user_validation"
 
 
 def test_minicpm_route_uses_structured_request(

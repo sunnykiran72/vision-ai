@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RT-DETR Person Validation Lab</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --line: #d9dde5;
+      --text: #111827;
+      --muted: #667085;
+      --ok: #0f8a45;
+      --bad: #b42318;
+      --accent: #375dfb;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 20px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    label {
+      display: block;
+      font-weight: 650;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    input[type="file"],
+    input[type="number"] {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--text);
+    }
+    input[type="number"] {
+      font-variant-numeric: tabular-nums;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .control {
+      min-width: 0;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 6px;
+      min-height: 38px;
+      padding: 8px 12px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      color: var(--muted);
+      background: #fff;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .pill.ok {
+      color: var(--ok);
+      border-color: #a8dfbd;
+      background: #eefbf3;
+    }
+    .pill.bad {
+      color: var(--bad);
+      border-color: #f3b6b1;
+      background: #fff1f0;
+    }
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      min-height: 420px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #eef1f5;
+      display: grid;
+      place-items: center;
+    }
+    canvas {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+    .empty {
+      color: var(--muted);
+      padding: 24px;
+      text-align: center;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      max-height: 420px;
+      overflow: auto;
+      background: #0f172a;
+      color: #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .result-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .result-title h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .check-row input {
+      margin-top: 2px;
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      max-height: 520px;
+      background: #fff;
+    }
+    table {
+      width: 100%;
+      min-width: 1040px;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    th,
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f9fafb;
+      color: #344054;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    tr.row-ok td:first-child {
+      border-left: 4px solid var(--ok);
+    }
+    tr.row-bad td:first-child {
+      border-left: 4px solid var(--bad);
+    }
+    .filename-cell {
+      max-width: 260px;
+      word-break: break-word;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .metric strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 3px;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+    @media (max-width: 900px) {
+      main { padding: 16px; }
+      .grid,
+      .split {
+        grid-template-columns: 1fr;
+      }
+      .canvas-wrap {
+        min-height: 300px;
+      }
+      .summary-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>RT-DETR Person Validation Lab</h1>
+      <p>Upload user images and inspect raw person detections, blur score, bbox coverage, and proposed pass/fail metadata.</p>
+    </header>
+
+    <section class="grid">
+      <div class="panel">
+        <label for="image">User images</label>
+        <input id="image" type="file" accept="image/png,image/jpeg,image/jpg" multiple>
+        <div id="fileMeta" class="small">PNG/JPEG only. Select one image or a batch.</div>
+
+        <div class="controls">
+          <div class="control">
+            <label for="scoreThreshold">Box score threshold</label>
+            <input id="scoreThreshold" type="number" value="0.10" min="0.01" max="0.99" step="0.01">
+          </div>
+          <div class="control">
+            <label for="multiPersonThreshold">Multi-person score</label>
+            <input id="multiPersonThreshold" type="number" value="0.45" min="0.01" max="0.99" step="0.01">
+          </div>
+          <div class="control">
+            <label for="minHeightRatio">Min height ratio</label>
+            <input id="minHeightRatio" type="number" value="0.50" min="0.10" max="1.00" step="0.01">
+          </div>
+          <div class="control">
+            <label for="minAreaRatio">Min area ratio</label>
+            <input id="minAreaRatio" type="number" value="0.12" min="0.01" max="0.90" step="0.01">
+          </div>
+          <div class="control">
+            <label for="minBottomRatio">Min bottom ratio</label>
+            <input id="minBottomRatio" type="number" value="0.68" min="0.10" max="1.00" step="0.01">
+          </div>
+          <div class="control">
+            <label for="blurThreshold">Blur threshold</label>
+            <input id="blurThreshold" type="number" value="80" min="0" max="1000" step="1">
+          </div>
+        </div>
+
+        <label class="check-row" for="analysisMode">
+          <input id="analysisMode" type="checkbox" checked>
+          <span>Analysis mode: collect metrics without rejecting by height, area, bottom, blur, or multi-person thresholds. Person detection score threshold still controls which boxes are shown.</span>
+        </label>
+
+        <div class="actions">
+          <button id="run" class="primary" type="button">Run Selected</button>
+          <button id="stop" type="button" disabled>Stop</button>
+          <button id="clear" type="button">Clear</button>
+        </div>
+
+        <div class="status-row">
+          <span id="serverState" class="pill">server: checking</span>
+          <span id="modelState" class="pill">model: unknown</span>
+          <span id="latency" class="pill">0 ms</span>
+        </div>
+        <p class="small">The first run downloads/loads the model and will be slower. Later runs show the real local inference behavior.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result-title">
+          <h2>Overlay</h2>
+          <span id="decision" class="pill">idle</span>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="canvas" class="hidden"></canvas>
+          <div id="empty" class="empty">Select an image and run detection.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top: 14px;">
+      <div class="result-title">
+        <h2>Batch Metrics</h2>
+        <div class="actions" style="margin-top: 0;">
+          <button id="exportCsv" type="button">Export CSV</button>
+          <button id="exportJson" type="button">Export JSON</button>
+        </div>
+      </div>
+      <div class="summary-grid">
+        <div class="metric"><strong id="summaryProcessed">0</strong><span>processed</span></div>
+        <div class="metric"><strong id="summaryAccepted">0</strong><span>accepted by current rules</span></div>
+        <div class="metric"><strong id="summaryMedianHeight">-</strong><span>median height ratio</span></div>
+        <div class="metric"><strong id="summaryMedianArea">-</strong><span>median area ratio</span></div>
+        <div class="metric"><strong id="summaryMedianBlur">-</strong><span>median blur score</span></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>File</th>
+              <th>Status</th>
+              <th>Dims</th>
+              <th>People</th>
+              <th>Score</th>
+              <th>Height</th>
+              <th>Area</th>
+              <th>Top</th>
+              <th>Bottom</th>
+              <th>Blur</th>
+              <th>Seconds</th>
+              <th>Reasons</th>
+            </tr>
+          </thead>
+          <tbody id="batchRows">
+            <tr><td colspan="13">No batch results yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="split">
+      <div class="panel">
+        <div class="result-title">
+          <h2>Decision</h2>
+          <span id="counts" class="pill">0 boxes</span>
+        </div>
+        <pre id="decisionJson">{}</pre>
+      </div>
+      <div class="panel">
+        <div class="result-title">
+          <h2>Raw Response</h2>
+          <span id="blur" class="pill">blur: n/a</span>
+        </div>
+        <pre id="rawJson">{}</pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      image: document.getElementById("image"),
+      fileMeta: document.getElementById("fileMeta"),
+      scoreThreshold: document.getElementById("scoreThreshold"),
+      multiPersonThreshold: document.getElementById("multiPersonThreshold"),
+      minHeightRatio: document.getElementById("minHeightRatio"),
+      minAreaRatio: document.getElementById("minAreaRatio"),
+      minBottomRatio: document.getElementById("minBottomRatio"),
+      blurThreshold: document.getElementById("blurThreshold"),
+      analysisMode: document.getElementById("analysisMode"),
+      run: document.getElementById("run"),
+      stop: document.getElementById("stop"),
+      clear: document.getElementById("clear"),
+      exportCsv: document.getElementById("exportCsv"),
+      exportJson: document.getElementById("exportJson"),
+      serverState: document.getElementById("serverState"),
+      modelState: document.getElementById("modelState"),
+      latency: document.getElementById("latency"),
+      decision: document.getElementById("decision"),
+      counts: document.getElementById("counts"),
+      blur: document.getElementById("blur"),
+      decisionJson: document.getElementById("decisionJson"),
+      rawJson: document.getElementById("rawJson"),
+      canvas: document.getElementById("canvas"),
+      empty: document.getElementById("empty"),
+      batchRows: document.getElementById("batchRows"),
+      summaryProcessed: document.getElementById("summaryProcessed"),
+      summaryAccepted: document.getElementById("summaryAccepted"),
+      summaryMedianHeight: document.getElementById("summaryMedianHeight"),
+      summaryMedianArea: document.getElementById("summaryMedianArea"),
+      summaryMedianBlur: document.getElementById("summaryMedianBlur"),
+    };
+
+    let selectedImage = null;
+    let selectedObjectUrl = "";
+    let batchResults = [];
+    let stopRequested = false;
+
+    function setPill(el, text, state) {
+      el.textContent = text;
+      el.classList.toggle("ok", state === "ok");
+      el.classList.toggle("bad", state === "bad");
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/status", { cache: "no-store" });
+        const json = await res.json();
+        setPill(els.serverState, "server: ready", "ok");
+        const modelText = json.ready
+          ? `model: ready ${json.device}`
+          : json.loading
+            ? "model: loading"
+            : "model: lazy";
+        setPill(els.modelState, modelText, json.ready ? "ok" : "");
+      } catch (error) {
+        setPill(els.serverState, "server: down", "bad");
+        setPill(els.modelState, "model: unknown", "");
+      }
+    }
+
+    async function fileToImage(file) {
+      if (selectedObjectUrl) URL.revokeObjectURL(selectedObjectUrl);
+      selectedObjectUrl = URL.createObjectURL(file);
+      const image = new Image();
+      image.src = selectedObjectUrl;
+      await image.decode();
+      return image;
+    }
+
+    function drawOverlay(result) {
+      if (!selectedImage) return;
+      const canvas = els.canvas;
+      const ctx = canvas.getContext("2d");
+      canvas.width = selectedImage.naturalWidth;
+      canvas.height = selectedImage.naturalHeight;
+      ctx.drawImage(selectedImage, 0, 0);
+      ctx.lineWidth = Math.max(3, Math.round(Math.max(canvas.width, canvas.height) / 300));
+      ctx.font = `${Math.max(18, Math.round(canvas.width / 42))}px system-ui, sans-serif`;
+      ctx.textBaseline = "top";
+
+      for (const item of result.boxes || []) {
+        const box = item.box;
+        const isPerson = String(item.label).toLowerCase() === "person";
+        ctx.strokeStyle = isPerson ? "#14b86a" : "#f97316";
+        ctx.fillStyle = isPerson ? "rgba(20,184,106,0.15)" : "rgba(249,115,22,0.15)";
+        const w = box.x2 - box.x1;
+        const h = box.y2 - box.y1;
+        ctx.fillRect(box.x1, box.y1, w, h);
+        ctx.strokeRect(box.x1, box.y1, w, h);
+        const label = `${item.label} ${Math.round(item.score * 100)}%`;
+        const metrics = item.metrics || {};
+        const text = `${label} h=${metrics.height_ratio} a=${metrics.area_ratio}`;
+        const textWidth = ctx.measureText(text).width + 12;
+        const y = Math.max(0, box.y1 - 34);
+        ctx.fillStyle = isPerson ? "#087443" : "#c2410c";
+        ctx.fillRect(box.x1, y, textWidth, 30);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(text, box.x1 + 6, y + 5);
+      }
+      canvas.classList.remove("hidden");
+      els.empty.style.display = "none";
+    }
+
+    function formThresholdValue(normalValue, analysisValue) {
+      return els.analysisMode.checked ? String(analysisValue) : String(normalValue);
+    }
+
+    function buildDetectionForm(file) {
+      const form = new FormData();
+      form.append("image", file);
+      form.append("score_threshold", els.scoreThreshold.value);
+      form.append(
+        "multi_person_score_threshold",
+        formThresholdValue(els.multiPersonThreshold.value, 1)
+      );
+      form.append("min_height_ratio", formThresholdValue(els.minHeightRatio.value, 0));
+      form.append("min_area_ratio", formThresholdValue(els.minAreaRatio.value, 0));
+      form.append("min_bottom_ratio", formThresholdValue(els.minBottomRatio.value, 0));
+      form.append("blur_threshold", formThresholdValue(els.blurThreshold.value, 0));
+      return form;
+    }
+
+    async function detectFile(file) {
+      const started = performance.now();
+      const res = await fetch("/detect", { method: "POST", body: buildDetectionForm(file) });
+      const json = await res.json();
+      const elapsedMs = Math.round(performance.now() - started);
+      return { response: res, json, elapsedMs };
+    }
+
+    function metricValue(result, key) {
+      const metrics = result?.json?.decision?.primary_person?.metrics || {};
+      const value = metrics[key];
+      return value === undefined || value === null ? "" : value;
+    }
+
+    function primaryScore(result) {
+      const value = result?.json?.decision?.primary_person?.score;
+      return value === undefined || value === null ? "" : value;
+    }
+
+    function blurScore(result) {
+      const value = result?.json?.blur?.score;
+      return value === undefined || value === null ? "" : value;
+    }
+
+    function fmt(value) {
+      if (value === "" || value === undefined || value === null) return "-";
+      if (typeof value === "number") return value.toFixed(value >= 10 ? 1 : 4);
+      return String(value);
+    }
+
+    function median(values) {
+      const nums = values
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+      if (!nums.length) return "";
+      const mid = Math.floor(nums.length / 2);
+      return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+    }
+
+    function renderBatchRows() {
+      if (!batchResults.length) {
+        els.batchRows.innerHTML = '<tr><td colspan="13">No batch results yet.</td></tr>';
+        updateSummary();
+        return;
+      }
+      els.batchRows.innerHTML = batchResults.map((result, index) => {
+        const json = result.json || {};
+        const decision = json.decision || {};
+        const accepted = Boolean(decision.accepted);
+        const image = json.image || {};
+        const reasons = Array.isArray(decision.reasons) ? decision.reasons.join("; ") : "";
+        return `
+          <tr class="${accepted ? "row-ok" : "row-bad"}">
+            <td>${index + 1}</td>
+            <td class="filename-cell">${escapeHtml(result.file)}</td>
+            <td>${result.error ? "error" : accepted ? "accepted" : "rejected"}</td>
+            <td>${image.width || "-"}x${image.height || "-"}</td>
+            <td>${decision.person_count ?? "-"}</td>
+            <td>${fmt(primaryScore(result))}</td>
+            <td>${fmt(metricValue(result, "height_ratio"))}</td>
+            <td>${fmt(metricValue(result, "area_ratio"))}</td>
+            <td>${fmt(metricValue(result, "top_ratio"))}</td>
+            <td>${fmt(metricValue(result, "bottom_ratio"))}</td>
+            <td>${fmt(blurScore(result))}</td>
+            <td>${fmt((json.timings || {}).detect_seconds)}</td>
+            <td>${escapeHtml(result.error || reasons || "")}</td>
+          </tr>
+        `;
+      }).join("");
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const processed = batchResults.length;
+      const accepted = batchResults.filter((result) => result.json?.decision?.accepted).length;
+      els.summaryProcessed.textContent = String(processed);
+      els.summaryAccepted.textContent = String(accepted);
+      els.summaryMedianHeight.textContent = fmt(median(batchResults.map((r) => metricValue(r, "height_ratio"))));
+      els.summaryMedianArea.textContent = fmt(median(batchResults.map((r) => metricValue(r, "area_ratio"))));
+      els.summaryMedianBlur.textContent = fmt(median(batchResults.map((r) => blurScore(r))));
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function runDetection() {
+      const files = Array.from((els.image.files || []));
+      const file = files[0];
+      if (!file) {
+        setPill(els.decision, "select image", "bad");
+        return;
+      }
+      els.run.disabled = true;
+      els.stop.disabled = false;
+      stopRequested = false;
+      setPill(els.decision, "running", "");
+      const started = performance.now();
+      try {
+        batchResults = [];
+        renderBatchRows();
+        for (let index = 0; index < files.length; index += 1) {
+          if (stopRequested) break;
+          const currentFile = files[index];
+          setPill(els.decision, `running ${index + 1}/${files.length}`, "");
+          selectedImage = await fileToImage(currentFile);
+          try {
+            const { response, json, elapsedMs } = await detectFile(currentFile);
+            const result = {
+              file: currentFile.name,
+              elapsed_ms: elapsedMs,
+              json,
+              error: response.ok && json.ok ? "" : (json.error || response.statusText),
+            };
+            batchResults.push(result);
+            setPill(els.latency, `${elapsedMs} ms`, "");
+            els.rawJson.textContent = JSON.stringify(json, null, 2);
+            if (!response.ok || !json.ok) {
+              setPill(els.decision, "error", "bad");
+              els.decisionJson.textContent = JSON.stringify({ error: result.error }, null, 2);
+            } else {
+              const accepted = Boolean(json.decision && json.decision.accepted);
+              setPill(els.decision, accepted ? "accepted" : "rejected", accepted ? "ok" : "bad");
+              setPill(els.counts, `${json.decision.person_count} person / ${json.boxes.length} boxes`, "");
+              setPill(
+                els.blur,
+                json.blur && json.blur.score !== null ? `blur: ${json.blur.score}` : "blur: n/a",
+                json.decision.checks.not_blurry ? "ok" : "bad"
+              );
+              els.decisionJson.textContent = JSON.stringify(json.decision, null, 2);
+              drawOverlay(json);
+            }
+          } catch (error) {
+            batchResults.push({
+              file: currentFile.name,
+              elapsed_ms: 0,
+              json: {},
+              error: String(error.message || error),
+            });
+          }
+          renderBatchRows();
+        }
+        const elapsed = Math.round(performance.now() - started);
+        setPill(els.latency, `${elapsed} ms total`, "");
+        setPill(els.decision, stopRequested ? "stopped" : "batch done", stopRequested ? "bad" : "ok");
+        refreshStatus();
+      } catch (error) {
+        setPill(els.decision, "failed", "bad");
+        els.decisionJson.textContent = JSON.stringify({ error: String(error.message || error) }, null, 2);
+      } finally {
+        els.run.disabled = false;
+        els.stop.disabled = true;
+      }
+    }
+
+    function clearResult() {
+      els.image.value = "";
+      selectedImage = null;
+      if (selectedObjectUrl) URL.revokeObjectURL(selectedObjectUrl);
+      selectedObjectUrl = "";
+      els.fileMeta.textContent = "PNG/JPEG only.";
+      els.canvas.classList.add("hidden");
+      els.empty.style.display = "grid";
+      els.decisionJson.textContent = "{}";
+      els.rawJson.textContent = "{}";
+      batchResults = [];
+      renderBatchRows();
+      setPill(els.decision, "idle", "");
+      setPill(els.counts, "0 boxes", "");
+      setPill(els.blur, "blur: n/a", "");
+      setPill(els.latency, "0 ms", "");
+    }
+
+    els.image.addEventListener("change", async () => {
+      const files = Array.from(els.image.files || []);
+      const file = files[0];
+      if (!file) return;
+      try {
+        const img = await fileToImage(file);
+        const totalBytes = files.reduce((sum, item) => sum + item.size, 0);
+        els.fileMeta.textContent = `${files.length} image${files.length === 1 ? "" : "s"} selected - first: ${file.name} - ${img.naturalWidth}x${img.naturalHeight} - ${totalBytes.toLocaleString()} bytes total`;
+      } catch (error) {
+        els.fileMeta.textContent = String(error.message || error);
+      }
+    });
+    function downloadText(filename, text, type) {
+      const blob = new Blob([text], { type });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function csvCell(value) {
+      const text = String(value ?? "");
+      return `"${text.replaceAll('"', '""')}"`;
+    }
+
+    function exportCsv() {
+      const headers = ["file", "accepted", "person_count", "score", "height_ratio", "area_ratio", "top_ratio", "bottom_ratio", "blur", "detect_seconds", "reasons", "error"];
+      const rows = batchResults.map((result) => {
+        const json = result.json || {};
+        const decision = json.decision || {};
+        const reasons = Array.isArray(decision.reasons) ? decision.reasons.join("; ") : "";
+        return [
+          result.file,
+          decision.accepted ?? "",
+          decision.person_count ?? "",
+          primaryScore(result),
+          metricValue(result, "height_ratio"),
+          metricValue(result, "area_ratio"),
+          metricValue(result, "top_ratio"),
+          metricValue(result, "bottom_ratio"),
+          blurScore(result),
+          (json.timings || {}).detect_seconds ?? "",
+          reasons,
+          result.error || "",
+        ].map(csvCell).join(",");
+      });
+      downloadText("rtdetr-person-metrics.csv", [headers.join(","), ...rows].join("\n"), "text/csv");
+    }
+
+    function exportJson() {
+      downloadText(
+        "rtdetr-person-metrics.json",
+        JSON.stringify({ exported_at: new Date().toISOString(), results: batchResults }, null, 2),
+        "application/json"
+      );
+    }
+
+    els.run.addEventListener("click", runDetection);
+    els.stop.addEventListener("click", () => {
+      stopRequested = true;
+      setPill(els.decision, "stopping", "bad");
+    });
+    els.clear.addEventListener("click", clearResult);
+    els.exportCsv.addEventListener("click", exportCsv);
+    els.exportJson.addEventListener("click", exportJson);
+    refreshStatus();
+  </script>
+</body>
+</html>

@@ -62,12 +62,18 @@ def main() -> int:
 
         return "load_file importable"
 
+    def opencv_info() -> str:
+        import cv2
+
+        return getattr(cv2, "__version__", "unknown")
+
     ok &= _check("torch", torch_info)
     ok &= _check("transformers (<5)", transformers_info)
     ok &= _check("diffusers + Qwen pipeline", diffusers_info)
     ok &= _check("vllm", vllm_info)
     ok &= _check("open_clip (Marqo)", open_clip_info)
     ok &= _check("safetensors", safetensors_info)
+    ok &= _check("opencv (user validation blur)", opencv_info)
 
     print("\nRESULT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1

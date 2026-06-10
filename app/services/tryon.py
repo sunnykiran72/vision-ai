@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import logging
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
-import logging
+from pathlib import Path
 from time import perf_counter
-import uuid
 
 import httpx
 from PIL import Image, UnidentifiedImageError
@@ -22,9 +23,12 @@ from app.models.tryon import TryonProduct, TryonRequest, TryonResponse, TryonRes
 from app.runtime.coordinator import QueueFullError, QueueTimeoutError
 from app.runtime.system_coordinator import get_system_execution_coordinator
 from app.runtime.tryon_runtime import get_tryon_runner
+from app.runtime.upscale_runtime import get_upscale_execution_coordinator, get_upscale_runner
 from app.services.tryon_routing import TryonRoutingDecision, resolve_tryon_route
 from app.utils.media_utils import (
+    build_job_media_paths,
     build_storage_object_name,
+    cleanup_directory,
     download_media_from_url,
 )
 from app.utils.tryon_collage import (
@@ -59,6 +63,7 @@ def run_tryon_request(
     resolved_settings = settings or get_settings()
     total_started = perf_counter()
     timings: dict[str, float] = {}
+    upscale_job_paths = None
     try:
         job_id = uuid.uuid4().hex
         resolved_seed = (
@@ -169,6 +174,64 @@ def run_tryon_request(
                 Image.Resampling.LANCZOS,
             )
         timings["output_resize_seconds"] = _elapsed(resize_started)
+        qwen_output_size = {"width": int(output_image.width), "height": int(output_image.height)}
+        upscale_metadata: dict[str, object] = {
+            "enabled": bool(resolved_settings.tryon_upscale_after_qwen),
+            "mode": "disabled",
+        }
+        if resolved_settings.tryon_upscale_after_qwen:
+            upscale_started = perf_counter()
+            upscale_job_paths = build_job_media_paths(
+                Path(resolved_settings.upscale_work_root) / "tryon",
+                input_extension=".png",
+                output_extension=".png",
+            )
+            # Feed SeedVR2 a lossless PNG of the Qwen output (no intermediate JPEG recompression);
+            # only the final delivered image is JPEG-encoded.
+            output_image.save(upscale_job_paths.input_path, format="PNG")
+            log_path = upscale_job_paths.job_dir / "seedvr2.log"
+            upscale_result = get_upscale_execution_coordinator(resolved_settings).run(
+                lambda: get_upscale_runner(resolved_settings).run(
+                    input_path=upscale_job_paths.input_path,
+                    output_path=upscale_job_paths.output_path,
+                    log_path=log_path,
+                    target_long_edge=int(resolved_settings.tryon_upscale_target_long_edge),
+                ),
+            )
+            with Image.open(upscale_result.output_path) as upscaled_image:
+                output_image = upscaled_image.convert("RGB")
+            before_downscale_size = {
+                "width": int(output_image.width),
+                "height": int(output_image.height),
+            }
+            output_image = _resize_to_long_edge(
+                output_image,
+                target_long_edge=int(resolved_settings.tryon_final_output_long_edge),
+            )
+            timings["seedvr2_upscale_seconds"] = float(upscale_result.wall_seconds)
+            timings["seedvr2_upscale_wall_seconds"] = _elapsed(upscale_started)
+            upscale_metadata = {
+                "enabled": True,
+                "mode": "seedvr2_inline",
+                "model_variant": upscale_result.model_variant,
+                "runner_backend": upscale_result.runner_backend,
+                "target_long_edge": int(upscale_result.target_long_edge),
+                "derived_short_edge": int(upscale_result.derived_short_edge),
+                "qwen_output_size": qwen_output_size,
+                "upscaled_size_before_downscale": before_downscale_size,
+                "final_long_edge": int(resolved_settings.tryon_final_output_long_edge),
+                "wall_seconds": float(upscale_result.wall_seconds),
+            }
+            logger.info(
+                "Try-on SeedVR2 inline upscale completed in %.3fs (%sx%s -> %sx%s -> %sx%s)",
+                timings["seedvr2_upscale_wall_seconds"],
+                qwen_output_size["width"],
+                qwen_output_size["height"],
+                before_downscale_size["width"],
+                before_downscale_size["height"],
+                output_image.width,
+                output_image.height,
+            )
 
         storage_client = AzureStorageClient(resolved_settings)
         if not storage_client.is_configured:
@@ -192,7 +255,12 @@ def run_tryon_request(
         )
         encode_started = perf_counter()
         output_buffer = BytesIO()
-        output_image.save(output_buffer, format="JPEG", quality=tryon_constants.JPEG_QUALITY)
+        output_image.save(
+            output_buffer,
+            format="JPEG",
+            quality=tryon_constants.JPEG_QUALITY,
+            subsampling=0,
+        )
         output_bytes = output_buffer.getvalue()
         timings["output_jpeg_encode_seconds"] = _elapsed(encode_started)
         upload_started = perf_counter()
@@ -208,6 +276,23 @@ def run_tryon_request(
             timings["total_wall_seconds"],
             timings["output_upload_seconds"],
             len(output_bytes),
+        )
+        # Per-stage latency breakdown for the whole pipeline (one line, easy to scan).
+        logger.info(
+            "Try-on latency breakdown (s): download=%.3f | reference=%.3f | prompt_route=%.3f | "
+            "qwen=%.3f (queued_wall=%.3f) | output_resize=%.3f | seedvr2_upscale=%.3f "
+            "(wall=%.3f) | jpeg_encode=%.3f | upload=%.3f || total=%.3f",
+            timings.get("download_seconds", 0.0),
+            timings.get("reference_build_seconds", 0.0),
+            timings.get("prompt_route_seconds", 0.0),
+            timings.get("qwen_generation_seconds", 0.0),
+            timings.get("qwen_generation_queued_wall_seconds", 0.0),
+            timings.get("output_resize_seconds", 0.0),
+            timings.get("seedvr2_upscale_seconds", 0.0),
+            timings.get("seedvr2_upscale_wall_seconds", 0.0),
+            timings.get("output_jpeg_encode_seconds", 0.0),
+            timings.get("output_upload_seconds", 0.0),
+            timings.get("total_wall_seconds", 0.0),
         )
 
         return TryonResponse(
@@ -227,6 +312,13 @@ def run_tryon_request(
                         "steps": resolved_steps,
                         "guidance_scale": resolved_guidance_scale,
                         "network_multiplier": float(resolved_settings.tryon_lora_scale),
+                        "upscale_after_qwen": bool(resolved_settings.tryon_upscale_after_qwen),
+                        "upscale_target_long_edge": int(
+                            resolved_settings.tryon_upscale_target_long_edge,
+                        ),
+                        "final_output_long_edge": int(
+                            resolved_settings.tryon_final_output_long_edge,
+                        ),
                     },
                     "reference": {
                         "product_reference_mode": product_reference.mode,
@@ -252,6 +344,7 @@ def run_tryon_request(
                         **run_result.metadata,
                         "wall_seconds": float(run_result.wall_seconds),
                     },
+                    "upscale": upscale_metadata,
                     "storage": {
                         "uploaded": True,
                         "url": output_url,
@@ -266,6 +359,8 @@ def run_tryon_request(
                         "height": int(output_image.height),
                         "inference_width": output_width,
                         "inference_height": output_height,
+                        "qwen_width": qwen_output_size["width"],
+                        "qwen_height": qwen_output_size["height"],
                     },
                 },
             ),
@@ -354,6 +449,9 @@ def run_tryon_request(
                 "error": str(exc),
             },
         )
+    finally:
+        if upscale_job_paths is not None:
+            cleanup_directory(upscale_job_paths.job_dir)
 
 
 def _build_specialist_prompt(
@@ -361,12 +459,45 @@ def _build_specialist_prompt(
     routing: TryonRoutingDecision,
     settings: Settings,
 ) -> str:
-    sections = _build_specialist_product_sections(products, routing.lora_key)
-    parts = [f"{routing.trigger_caption.rstrip('.')}."]
-    if sections:
-        parts.append(sections)
-    parts.append(settings.tryon_prompt_identity_clause)
-    return " ".join(part for part in parts if part).strip()
+    # Each garment type has one full template with the LoRA trigger baked in (kept exact).
+    # Single types inject the product description into {garment}; multi joins the products
+    # dynamically into {garment_list} (e.g. "Top: ... and Bottom: ...").
+    templates = tryon_constants.TRYON_PROMPT_TEMPLATE_BY_TYPE
+    if routing.lora_key == "multi":
+        garment_list = _build_multi_garment_list(products) or "reference garments"
+        return templates["multi"].format(garment_list=garment_list)
+    template = templates.get(routing.lora_key, templates["top"])
+    return template.format(garment=_single_garment_phrase(products))
+
+
+def _single_garment_phrase(products: list[TryonProduct]) -> str:
+    for product in products:
+        description = _format_product_prompt(product.prompt)
+        if description:
+            return description
+    return "reference garment"
+
+
+def _build_multi_garment_list(products: list[TryonProduct]) -> str:
+    # Canonical ordering (top/outer first, then dress, then bottom), stable within a tie.
+    priority = {"top": 0, "outer": 0, "dress": 1, "bottom": 2}
+    ordered = sorted(
+        enumerate(products),
+        key=lambda item: (priority.get(item[1].type.value, 99), item[0]),
+    )
+    parts: list[str] = []
+    for _index, product in ordered:
+        label = (
+            "Top"
+            if product.type.value == "outer"
+            else tryon_constants.TRYON_GARMENT_LABEL_BY_TYPE.get(
+                product.type.value,
+                product.type.value.capitalize(),
+            )
+        )
+        description = _format_product_prompt(product.prompt)
+        parts.append(f"{label}: {description}" if description else label)
+    return " and ".join(parts)
 
 
 def _build_specialist_product_sections(
@@ -499,6 +630,19 @@ def _resize_longest_side(image: Image.Image, *, max_edge: int) -> Image.Image:
     if longest <= int(max_edge):
         return image.convert("RGB")
     scale = float(max_edge) / float(longest)
+    new_size = (
+        max(1, int(round(width * scale))),
+        max(1, int(round(height * scale))),
+    )
+    return image.convert("RGB").resize(new_size, Image.Resampling.LANCZOS)
+
+
+def _resize_to_long_edge(image: Image.Image, *, target_long_edge: int) -> Image.Image:
+    width, height = int(image.width), int(image.height)
+    longest = max(width, height)
+    if target_long_edge <= 0 or longest <= 0 or longest == int(target_long_edge):
+        return image.convert("RGB")
+    scale = float(target_long_edge) / float(longest)
     new_size = (
         max(1, int(round(width * scale))),
         max(1, int(round(height * scale))),

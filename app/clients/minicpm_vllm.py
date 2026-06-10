@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -127,6 +128,7 @@ class MiniCPMVllmClient:
         # A local path is validated; an HF repo id is loaded from the cache.
         if "/" in self._model and Path(self._model).expanduser().exists():
             self._model = str(Path(self._model).expanduser())
+        os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
         try:
             from transformers import AutoTokenizer  # type: ignore[import-not-found]
             from vllm import LLM, SamplingParams  # type: ignore[import-not-found]

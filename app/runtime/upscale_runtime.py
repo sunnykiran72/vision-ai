@@ -11,6 +11,7 @@ from app.clients.seedvr2 import (
 )
 from app.config import Settings, get_settings
 from app.runtime.coordinator import BoundedExecutionCoordinator, CoordinatorSnapshot
+from app.runtime.system_coordinator import get_system_execution_coordinator
 
 
 @dataclass(frozen=True)
@@ -44,22 +45,10 @@ def _get_upscale_runner_cached(
 def get_upscale_execution_coordinator(
     settings: Settings | None = None,
 ) -> BoundedExecutionCoordinator[SeedVR2RunResult]:
-    resolved_settings = settings or get_settings()
-    return _get_upscale_execution_coordinator_cached(
-        resolved_settings.upscale_queue_max_size,
-        resolved_settings.upscale_queue_wait_timeout_seconds,
-    )
-
-
-@lru_cache(maxsize=8)
-def _get_upscale_execution_coordinator_cached(
-    max_queue_size: int,
-    queue_wait_timeout_seconds: int,
-) -> BoundedExecutionCoordinator[SeedVR2RunResult]:
-    return BoundedExecutionCoordinator(
-        max_queue_size=max_queue_size,
-        queue_wait_timeout_seconds=queue_wait_timeout_seconds,
-    )
+    # Share the single process-wide GPU slot with Qwen. SeedVR2 and Qwen are both heavy
+    # diffusion models on one GPU; running them concurrently stacks their activation peaks
+    # and OOMs. Serializing through one coordinator keeps everything within 96 GB.
+    return get_system_execution_coordinator(settings)
 
 
 def warmup_upscale_runtime(settings: Settings | None = None) -> None:

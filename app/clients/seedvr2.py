@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import logging
 import os
 import sys
+import tempfile
 import threading
 import time
 from contextlib import redirect_stderr, redirect_stdout
@@ -15,6 +17,26 @@ from types import ModuleType
 from PIL import Image
 
 from app.config import Settings
+
+logger = logging.getLogger("glamify-ai")
+
+# Output long edges to pre-warm torch.compile at startup (prod /v1/upscale presets: 2k, 4k).
+# Override with UPSCALE_WARMUP_EDGES="2048,4096" or disable pre-warm with UPSCALE_WARMUP=0.
+_DEFAULT_WARMUP_EDGES: tuple[int, ...] = (2048, 4096)
+# Persistent compile caches on the shared volume so the (slow) one-time inductor codegen is
+# reused across restarts AND across pods sharing /workspace (same GPU arch + venv). Without
+# this, inductor writes to ephemeral /tmp and recompiles from scratch on every restart.
+_PERSISTENT_COMPILE_CACHE_DIRS: dict[str, str] = {
+    "TORCHINDUCTOR_CACHE_DIR": "/workspace/.torchinductor_cache",
+    "TRITON_CACHE_DIR": "/workspace/.triton_cache",
+    "TORCHINDUCTOR_FX_GRAPH_CACHE": "1",
+}
+# torch.compiler "mega-cache": a single portable blob of ALL compile artifacts (inductor
+# codegen + triton + autotune). The automatic inductor FX-graph cache MISSES across restarts
+# for SeedVR2's custom fp8 DiT/VAE (its key includes per-process state), so every restart
+# recompiles (~340s). We snapshot the blob to the shared volume after prewarm and reload it on
+# startup, turning that ~340s recompile into a fast load. Override path with UPSCALE_MEGACACHE.
+_MEGACACHE_PATH = "/workspace/.seedvr2_compile_megacache.bin"
 
 
 @dataclass(frozen=True)
@@ -139,6 +161,50 @@ class SeedVR2Client:
             raise ValueError("UPSCALE_MODEL_VARIANT is not configured.")
 
         self._ensure_loaded(cli_path)
+        # Run the (slow, per-shape torch.compile) prewarm in a background daemon thread so it
+        # NEVER blocks API startup/health. Wardrobe + try-on become available immediately; the
+        # first upscale request simply waits on the shared _run_lock until the compile lands.
+        if os.environ.get("UPSCALE_WARMUP", "1") != "0":
+            threading.Thread(
+                target=self._prewarm,
+                name="seedvr2-prewarm",
+                daemon=True,
+            ).start()
+
+    def _prewarm(self) -> None:
+        """Run a synthetic upscale at each prod target resolution so torch.compile is paid at
+        startup (and cached to the volume), not on the first user request. Best-effort: a
+        failure here is logged and never blocks startup. Disable with UPSCALE_WARMUP=0."""
+        if os.environ.get("UPSCALE_WARMUP", "1") == "0":
+            return
+        raw = os.environ.get("UPSCALE_WARMUP_EDGES", "")
+        try:
+            edges = tuple(int(x) for x in raw.split(",") if x.strip()) or _DEFAULT_WARMUP_EDGES
+        except ValueError:
+            edges = _DEFAULT_WARMUP_EDGES
+        # 2:3 portrait synthetic input — the dominant wardrobe/try-on output aspect.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "warm_in.png"
+            Image.new("RGB", (832, 1248), (127, 127, 127)).save(src, format="PNG")
+            for edge in edges:
+                started = time.perf_counter()
+                try:
+                    self.run(
+                        input_path=src,
+                        output_path=Path(tmp) / f"warm_out_{edge}.png",
+                        log_path=Path(tmp) / f"warm_{edge}.log",
+                        target_long_edge=int(edge),
+                    )
+                    logger.info(
+                        "SeedVR2 prewarm at long_edge=%d done in %.1fs",
+                        edge,
+                        time.perf_counter() - started,
+                    )
+                except Exception as exc:  # noqa: BLE001 - prewarm must never block startup
+                    logger.warning("SeedVR2 prewarm at long_edge=%d failed: %s", edge, exc)
+        # Persist the freshly-compiled artifacts so the next restart reloads instead of
+        # recompiling (~340s -> fast load).
+        self._save_compile_cache()
 
     def status(self) -> SeedVR2RuntimeStatus:
         return SeedVR2RuntimeStatus(
@@ -192,6 +258,15 @@ class SeedVR2Client:
         #     __bool__, so `if model:` truthiness checks fall back to __len__ and raise
         #     ("CompatibleDiT does not support len()"). Make compiled modules truthy.
         # (2) cudnn.benchmark selects the fastest Conv3d algorithms for the fixed-shape VAE.
+        # (3) Persist the inductor/triton compile cache to the shared volume. Must be set before
+        #     the first torch.compile. setdefault so an explicit launch-env value still wins.
+        for key, value in _PERSISTENT_COMPILE_CACHE_DIRS.items():
+            os.environ.setdefault(key, value)
+            if key.endswith("_DIR"):
+                try:
+                    Path(value).mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    pass
         try:
             import torch as _torch
             from torch._dynamo.eval_frame import OptimizedModule
@@ -201,7 +276,49 @@ class SeedVR2Client:
             _torch.backends.cudnn.benchmark = True
         except Exception:
             pass
+        # Reload persisted compile artifacts BEFORE the first torch.compile (prewarm/first
+        # request), so the per-shape codegen is a fast load instead of a ~340s recompile.
+        self._load_compile_cache()
         return module
+
+    def _load_compile_cache(self) -> None:
+        """Best-effort reload of the torch.compiler mega-cache snapshot. Must run before the
+        first compile. Failure is logged and never blocks startup."""
+        if os.environ.get("UPSCALE_COMPILE", "1") == "0":
+            return
+        try:
+            import torch
+
+            path = Path(os.environ.get("UPSCALE_MEGACACHE", _MEGACACHE_PATH))
+            if not path.exists():
+                logger.info("SeedVR2 compile mega-cache absent (%s); will compile fresh", path)
+                return
+            data = path.read_bytes()
+            torch.compiler.load_cache_artifacts(data)
+            logger.info("SeedVR2 compile mega-cache loaded (%.1f MB)", len(data) / 1e6)
+        except Exception as exc:  # noqa: BLE001 - cache reload must never block startup
+            logger.warning("SeedVR2 compile mega-cache load failed: %s", exc)
+
+    def _save_compile_cache(self) -> None:
+        """Best-effort snapshot of all torch.compile artifacts to the shared volume so the next
+        restart reloads them. Called after prewarm has compiled every target shape."""
+        if os.environ.get("UPSCALE_COMPILE", "1") == "0":
+            return
+        try:
+            import torch
+
+            artifacts = torch.compiler.save_cache_artifacts()
+            if not artifacts:
+                logger.info("SeedVR2 compile mega-cache: nothing to save")
+                return
+            data, _info = artifacts
+            path = Path(os.environ.get("UPSCALE_MEGACACHE", _MEGACACHE_PATH))
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(path)
+            logger.info("SeedVR2 compile mega-cache saved (%.1f MB)", len(data) / 1e6)
+        except Exception as exc:  # noqa: BLE001 - cache save must never block startup
+            logger.warning("SeedVR2 compile mega-cache save failed: %s", exc)
 
     def _build_args(
         self,
@@ -215,6 +332,14 @@ class SeedVR2Client:
         target_long_edge: int,
     ) -> object:
         assert self._cli_module is not None
+        # Keep DiT + VAE RESIDENT on the GPU between requests. The CLI has a trap: with
+        # --cache_dit/--cache_vae, an offload device of "none" is silently rewritten to "cpu"
+        # (see inference_cli.py::_parse_offload_device, cache_enabled branch). That makes the
+        # VAE bounce GPU->CPU->GPU and re-convert fp16->bf16 (~2.6s) on EVERY request. Pointing
+        # the offload device at the GPU itself ("0") makes the cache a no-op that keeps weights
+        # resident: ~5.3s -> ~3.9s per 2730 upscale (single-image). On CPU-only, fall back.
+        # Single-image upscales are small enough to keep the latent/output tensors on-GPU too.
+        offload_device = "0" if self._backend == "cuda" else "none"
         argv = [
             str(cli_path),
             str(input_path),
@@ -235,17 +360,23 @@ class SeedVR2Client:
             "--cache_dit",
             "--cache_vae",
             "--dit_offload_device",
-            "none",
+            offload_device,
             "--vae_offload_device",
-            "none",
+            offload_device,
             "--tensor_offload_device",
-            "cpu",
+            offload_device,
         ]
-        # torch.compile (Triton/inductor) is a lossless ~20-40% DiT + ~15-25% VAE speedup.
-        # Gated by env: compile recompiles per new input shape, so production must pre-warm
-        # at the target resolution (otherwise the first request per shape pays a ~2min compile).
-        # Default on. Set UPSCALE_COMPILE=0 to disable.
-        if os.environ.get("UPSCALE_COMPILE", "1") != "0":
+        # Compile ONLY the prewarmed shapes (UPSCALE_WARMUP_EDGES, e.g. "2730" for try-on). Those
+        # are fixed (2:3-only) so the one static graph is reused → ~2.4s. EVERY other target (e.g.
+        # the standalone 4096 path) runs EAGER: 4096's ~20 GB compile workspace OOMs co-resident
+        # with Qwen, but eager 4096 — which still gets the offload="0" resident fix above — fits
+        # (~12.6 s). Set UPSCALE_COMPILE=0 to disable compile everywhere.
+        compile_edges = {
+            int(edge)
+            for edge in os.environ.get("UPSCALE_WARMUP_EDGES", "2730").split(",")
+            if edge.strip().isdigit()
+        }
+        if os.environ.get("UPSCALE_COMPILE", "1") != "0" and int(target_long_edge) in compile_edges:
             argv += ["--compile_dit", "--compile_vae"]
         original_argv = list(sys.argv)
         try:

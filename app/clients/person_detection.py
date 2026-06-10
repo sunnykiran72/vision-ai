@@ -66,7 +66,18 @@ class PersonDetectionClient:
 
         rgb = image.convert("RGB")
         inputs = self._processor(images=rgb, return_tensors="pt")
-        inputs = {key: value.to(self._device) for key, value in inputs.items()}
+        # The image processor emits float32 pixel_values, but on CUDA the model is loaded in
+        # fp16. Cast floating-point inputs to the model's dtype (leave integer masks as-is) or
+        # conv2d raises "Input type (FloatTensor) and weight type (HalfTensor) should be the same".
+        model_dtype = next(self._model.parameters()).dtype
+        inputs = {
+            key: (
+                value.to(self._device, dtype=model_dtype)
+                if value.is_floating_point()
+                else value.to(self._device)
+            )
+            for key, value in inputs.items()
+        }
 
         with self._infer_lock, self._torch.inference_mode():
             outputs = self._model(**inputs)

@@ -44,7 +44,7 @@ The CLI's `--dit_model` has a FIXED choices list. **Only `_mixed_block35_fp16` 7
 |---|---|---|
 | `seedvr2_ema_3b_fp8_e4m3fn.safetensors` | `numz/SeedVR2_comfyUI` | 3B FP8 |
 | `seedvr2_ema_3b_fp16.safetensors` | numz | 3B FP16 |
-| `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors` | **`AInVFX/SeedVR2_comfyUI`** | **7B FP8 — current PROD** |
+| `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors` | **`AInVFX/SeedVR2_comfyUI`** | 7B FP8 fallback / quality comparison |
 | `seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors` | AInVFX | 7B "sharp" FP8 |
 | `seedvr2_ema_7b_fp16.safetensors` / `_sharp_fp16` | numz | FP16 ceilings |
 | GGUF Q4_K_M / Q8_0 (3B/7B/sharp) | AInVFX | quantized |
@@ -92,7 +92,7 @@ Ship **3B FP8 @ target resolution + torch.compile**, with: `LD_LIBRARY_PATH` (nv
 - Model: `/workspace/models/qwen-image-edit-2511` (transformer = 39 GB bf16, ~20B params).
 - Prod engine: `app/clients/qwen_diffusers_engine.py` → `QwenImageEditPlusPipeline`, **bf16**, swaps 1 of 3 category LoRAs per request.
 - LoRAs: `/workspace/loras/wardrobe/{top_23000,bottom_30000,dress_27000}.safetensors`.
-- Generation: **seed 7777, steps 10 (prod), `true_cfg_scale=1.0` (NO CFG → 1 forward/step), output 832×1248.** Extraction prompt templates in `app/constants/wardrobe.py` (`GlamTopExt`/`GlamBtmExt`/`GlamDressExt`).
+- Generation: **seed 7777, steps 12 (current `fp8_version` API), `true_cfg_scale=1.0` (NO CFG → 1 forward/step), output 832×1248.** Extraction prompt templates in `app/constants/wardrobe.py` (`GlamTopExt`/`GlamBtmExt`/`GlamDressExt`).
 - **Interactive lab (standalone):** `tools/qwen_lab_server.py` + `tools/qwen_lab.html` → `GET /tools/qwen-lab`. Inputs: image, prompt, seed, steps, output W×H, cache dropdown (0 / 0.2). Returns output image + metrics (total/encode/denoise/decode/per-step/VRAM) + history.
 
 ### 2.2 The working FP8 recipe
@@ -117,11 +117,11 @@ pipe.transformer = torch.compile(pipe.transformer)            # full compile (no
 | bf16 + compile | 8.9s | 62 GB | — |
 | **fp8 no-compile** | **20.4s** ⚠️ | 42 GB | — (fp8 is SLOWER without compile) |
 | **fp8 + compile** | **6.5s** | **42 GB** | PSNR 28–34, visually identical |
-| **fp8 + compile, cache 0** | **~6.5s** | **42 GB** | best current production candidate |
+| **fp8 + compile, cache 0** | **~6.5s** | **42 GB** | best fused single-LoRA/category-worker candidate |
 | fp8 + compile + cache 0.20 | ~4–6s, but unstable | 42 GB | cache behavior is not reliable enough for prod |
 | fp8 + compile + cache 0.25 | ~3.8–4.2s, but unstable | 42 GB | higher quality risk |
 
-- **fp8+compile with cache 0 @15 steps ≈ same latency as current bf16@10 steps (~6.6s) → more accuracy, −33% VRAM, and deterministic latency.**
+- **fp8+compile with cache 0 @15 steps ≈ same latency as the older bf16@10-step path (~6.6s) → more accuracy, −33% VRAM, and deterministic latency.**
 - Latency is **linear in steps** (~0.43s/step compiled): 8→4.0s, 10→4.5s, 12→5.4s, 15→6.7s (uncompiled-cache numbers; compiled is lower). Pipeline profile: 95% is the DiT denoise loop; VAE+encoder are negligible (~0.3s).
 - All 3 LoRAs (top/bottom/dress) load+fuse+quantize fine under fp8. Top has the strongest visual validation so far; bottom/dress still need final quality sign-off. Benchmark outputs live at `/workspace/qwen_bench_out/*.png`.
 
@@ -129,7 +129,7 @@ pipe.transformer = torch.compile(pipe.transformer)            # full compile (no
 1. **fp8 only beats bf16 WITH `torch.compile`.** Uncompiled fp8 = 20s (quant/dequant overhead unfused). The compile fuses the fp8 GEMM (~0.3s/step vs ~1.5s/step).
 2. **diffusers `TorchAoConfig("float8dq")` (string) FAILS** on diffusers 0.38 (`quant_type must be an AOBaseConfig instance`). Use **`torchao.quantize_` directly**.
 3. **cache-dit + FULL `torch.compile` crashes** (`InternalTorchDynamoError: Polyfill handler __eq__ ... not traceable`, torch 2.11). Workaround: **`pipe.transformer.compile_repeated_blocks(fullgraph=False)`** instead of `torch.compile(pipe.transformer)`.
-4. **cache-dit + compile recompiles on cache-pattern change.** cache-dit's step-skipping is data-dependent; with compile it can recompile (~65s first time / intermittent ~12s spikes). **Mitigation: FIXED input dims** (lab resizes every input to 768×1024) helps, but does not fully remove spikes. **No-cache + compile is fully deterministic (~6.5–6.9s, no spikes) and is now the recommended production baseline.**
+4. **cache-dit + compile recompiles on cache-pattern change.** cache-dit's step-skipping is data-dependent; with compile it can recompile (~65s first time / intermittent ~12s spikes). **Mitigation: FIXED input dims** (lab resizes every input to 768×1024) helps, but does not fully remove spikes. **No-cache + compile is deterministic in the fused single-LoRA lab (~6.5–6.9s, no spikes), but it is not the current shared API baseline because PEFT adapter switching re-specializes.**
 5. **Quantize on GPU, not CPU.** `quantize_` on a CPU model = ~15 min on Pod A (slow CPU); `pipe.to("cuda")` *before* `quantize_` → ~1 min. Peak VRAM during quantize fits in 96 GB.
 6. **`enable_separate_cfg=False`** in DBCacheConfig (because `true_cfg_scale=1.0` = no separate CFG pass). The auto-default `True` mis-aligns the cache.
 7. Compile recompiles per **output dimension** too → pre-warm at the prod output size.
@@ -147,19 +147,61 @@ At 15 steps, ~6.5s with cache 0 is the dependable floor on the current single RT
 Launch script `/workspace/run_qwen_lab.sh` env used for cache benchmarks: `CATEGORY=top CACHE_THR=0.2 CACHE_WARMUP=2 PORT=8000 LAB_COMPILE=1 LAB_CACHE=1 LD_LIBRARY_PATH=<cu13> PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. The checked-in lab server defaults to `LAB_CACHE=0` for deterministic no-cache runs; set `LAB_CACHE=1` to enable cache during warmup/benchmarking. It warms with a real sample image (2 warmups). URL: `https://<podid>-8000.proxy.runpod.net/tools/qwen-lab`. The lab loads only the `CATEGORY` LoRA at startup (one category at a time; switch via env + restart). The `cache` dropdown toggles per-request via `enable_cache`/`disable_cache` (guarded to skip if already at that threshold).
 
 ### 2.8 Recommendation (Qwen wardrobe)
-For prod now: **fp8 + compile + cache 0**, 15 steps, ~6.5–6.9s, 42 GB (−33%). This is the best current balance because no-cache is generating the better/reliable image and avoids cache-dit's recompile/spike behavior. Requires: GPU-quantize, `LD_LIBRARY_PATH` (nvrtc), pre-warm at prod resolution (fixed dims), and per-category fp8 models (3 LoRAs can't dynamically swap on a quantized+compiled model — build/pre-warm one per category). Keep cache 0.20/0.25 as R&D only, not as the production path.
+For the single-process multi-adapter API branch: **fp8 + no compile**, 12 steps, fixed 832×1248 output. The fused single-LoRA lab showed fp8+compile can be fast, but the full API path uses PEFT adapter switching and repeatedly re-specialized under `torch.compile`, including on real `/v1/wardrobe` requests after startup warmup. Keep compile for fused/category-specific workers or lab benchmarking only until adapter switching has a stable compile strategy.
+
+### 2.9 Why the 6.5s lab result did not transfer to the API
+The 6.5-6.8s number came from the Qwen lab, which is a simpler runtime: one category, one LoRA
+path, stable/fused behavior, and fixed output size. In that setup `torch.compile` can reuse the
+compiled graph.
+
+The production API path is a shared multi-adapter runtime:
+
+- one Qwen base pipeline
+- top/bottom/dress PEFT adapters loaded together
+- `set_adapters(...)` on each request
+- real MiniCPM caption text changes per image
+- real image tensors differ from the synthetic warmup image
+
+With `QWEN_COMPILE=1`, the API paid compile at startup for top/bottom/dress, then still paid another
+compile on a real top request. The first real `/v1/wardrobe` request timed out at `240s`; the server
+eventually completed the Qwen phase after about `5:27`. A repeated top request also started another
+Qwen compile path. This shows the graph was not being reused reliably.
+
+So the failure was not caused by reducing steps from 15 to 12. It was caused by using
+`torch.compile` on the PEFT adapter-switching API path. The stable shared-runtime config is:
+
+```text
+QWEN_FP8=1
+QWEN_COMPILE=0
+```
+
+Measured same-image repeated top smoke test in that stable config:
+
+| Run | Total wall | Fashion detector | MiniCPM AWQ caption | Qwen fp8 no-compile, 12 steps | Output upload |
+|---:|---:|---:|---:|---:|---:|
+| 1 | `35.96s` | `4.66s` | `0.43s` | `30.34s` | `0.50s` |
+| 2 | `20.41s` | `0.05s` | `0.29s` | `19.76s` | `0.29s` |
+| 3 | `18.80s` | `0.04s` | `0.28s` | `18.19s` | `0.27s` |
+| 4 | `23.07s` | `0.04s` | `0.28s` | `22.47s` | `0.26s` |
+
+After the first real request, detector drops to about `40-50ms` and MiniCPM to about `280ms`.
+The remaining bottleneck is Qwen generation itself. The stable pod stayed healthy after the loop,
+queue empty, with warm VRAM around `50.7 GB / 97.9 GB`.
+
+To get back near the lab latency, use fused/category-specific Qwen workers with one LoRA active per
+runtime, then enable compile there.
 
 ---
 
 ## 3. Current state at end of session
 - **SeedVR2 lab**: committed to repo (`5e2bf22`); compile #502 fix + nvrtc fix + cudnn + maxsize in `app/clients/seedvr2.py`. ~3.6s @3072 reliable.
-- **Qwen lab**: last known on **Pod A (`dt3jjdcekx1lvl`) port 8000**, `/tools/qwen-lab`. Deterministic mode (`LAB_CACHE=0`) is ~6.5s/image and is the preferred prod baseline. Cache benchmark mode (`LAB_CACHE=1`, cache 0.2) gives ~5–6s/image with occasional ~12s re-fire and should stay R&D-only. Files in repo: `tools/qwen_lab_server.py`, `tools/qwen_lab.html` (NOT yet committed — should be committed).
+- **Qwen lab**: last known on **Pod A (`dt3jjdcekx1lvl`) port 8000**, `/tools/qwen-lab`. Deterministic mode (`LAB_CACHE=0`) is ~6.5s/image and is the preferred baseline only for fused single-LoRA/category-specific workers. The shared API uses `QWEN_COMPILE=0` until adapter-switching graph reuse is solved. Cache benchmark mode (`LAB_CACHE=1`, cache 0.2) gives ~5–6s/image with occasional ~12s re-fire and should stay R&D-only. Files in repo: `tools/qwen_lab_server.py`, `tools/qwen_lab.html` (NOT yet committed — should be committed).
 - Benchmark artifacts on Pod volume: `/workspace/qwen_bench_out/` (output PNGs, JSON, logs), `/workspace/seedvr2_eval/`, scripts `/workspace/qwen_*.py`.
 - Pod B (`ra4nfsl1lrajm5`) has a wedged 60 GB GPU process — needs a pod restart to clear.
 
 ## 4. Open items / next steps
 1. **Commit** this doc + `tools/qwen_lab_server.py` + `tools/qwen_lab.html` to the repo.
-2. **Port to prod**: ensure the SeedVR2 prod launch includes the nvrtc `LD_LIBRARY_PATH`; keep the `SystemExit` and `OptimizedModule.__bool__` guards in the `/v1/upscale` path; integrate fp8 (torchao + compile + pre-warm) into `qwen_diffusers_engine.py` behind a flag.
-3. **Qwen per-category fp8**: implement one warmed fp8+compiled no-cache model per category, or separate workers per category, so prod does not swap LoRAs on a quantized+compiled model.
+2. **Port to prod**: ensure the SeedVR2 prod launch includes the nvrtc `LD_LIBRARY_PATH`; keep the `SystemExit` and `OptimizedModule.__bool__` guards in the `/v1/upscale` path; keep Qwen fp8 behind `QWEN_FP8`, with `QWEN_COMPILE=0` for the shared adapter-switching API and compile reserved for fused/category-specific workers.
+3. **Qwen adapter warmup**: the current API branch uses one Qwen base with all required LoRAs loaded before fp8 quantization, then warm-runs each category once. Keep separate category workers as a future latency-isolation option only if startup or traffic patterns require it.
 4. **Untested wins**: TaylorSeer calibrator for Qwen (possible sub-3.5s near-lossless, but cache is currently unreliable); FP8 compile mode/block-compile variants; lower output size if product accepts it; SeedVR2 2560 out-edge for ~2.5s.
 5. **Visual quality sign-off** on bottom/dress garments under fp8 (only `top` samples existed on the pod).

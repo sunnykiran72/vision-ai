@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     )
     qwen_image_edit_dtype: str = Field(default="bfloat16", alias="QWEN_IMAGE_EDIT_DTYPE")
     qwen_compile: bool = Field(default=False, alias="QWEN_COMPILE")
+    qwen_fp8: bool = Field(default=False, alias="QWEN_FP8")
 
     wardrobe_lora_top_path: str = Field(default="", alias="WARDROBE_LORA_TOP_PATH")
     wardrobe_lora_bottom_path: str = Field(default="", alias="WARDROBE_LORA_BOTTOM_PATH")
@@ -142,13 +143,25 @@ class Settings(BaseSettings):
         default=tryon_constants.STORAGE_PREFIX,
         alias="TRYON_STORAGE_PREFIX",
     )
+    tryon_upscale_after_qwen: bool = Field(
+        default=tryon_constants.UPSCALE_AFTER_QWEN,
+        alias="TRYON_UPSCALE_AFTER_QWEN",
+    )
+    tryon_upscale_target_long_edge: int = Field(
+        default=tryon_constants.UPSCALE_TARGET_LONG_EDGE_PX,
+        alias="TRYON_UPSCALE_TARGET_LONG_EDGE",
+    )
+    tryon_final_output_long_edge: int = Field(
+        default=tryon_constants.FINAL_OUTPUT_LONG_EDGE_PX,
+        alias="TRYON_FINAL_OUTPUT_LONG_EDGE",
+    )
 
     upscale_model_path: str = Field(
         default="/workspace/models/upscale/seedvr2",
         alias="UPSCALE_MODEL_PATH",
     )
     upscale_model_variant: str = Field(
-        default="seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+        default="seedvr2_ema_3b_fp8_e4m3fn.safetensors",
         alias="UPSCALE_MODEL_VARIANT",
     )
     upscale_cli_path: str = Field(

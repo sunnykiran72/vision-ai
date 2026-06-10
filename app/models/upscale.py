@@ -15,7 +15,7 @@ class UpscaleMetric(StrEnum):
 
 class UpscaleRequest(BaseModel):
     image_url: HttpUrl = Field(..., description="Public HTTP(S) URL for the input image")
-    metric: UpscaleMetric = Field(default=UpscaleMetric.TWO_K, description="Target output preset")
+    metric: UpscaleMetric = Field(default=UpscaleMetric.FOUR_K, description="Target output preset")
 
 
 class UpscaleResponseData(BaseModel):

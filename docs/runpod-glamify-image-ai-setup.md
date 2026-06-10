@@ -129,16 +129,16 @@ MINICPM_RESIZE_LONG_PX=1024
 MINICPM_ENFORCE_EAGER=false
 ```
 
-`QWEN_COMPILE=false` is the production default. `QWEN_COMPILE=true` remains available for benchmark
-runs, but `torch.compile(dynamic=False)` can specialize to prompt/image shapes and cause slow first
-requests for varied garments. `MINICPM_ENFORCE_EAGER=false` lets vLLM use CUDA graphs for the AWQ
-captioner when VRAM headroom permits.
+`QWEN_COMPILE=false` is the production default for the multi-adapter API path. `QWEN_COMPILE=true`
+remains available for fused single-LoRA benchmark workers, but the full API path uses adapter
+switching and can repeatedly specialize under `torch.compile`. `MINICPM_ENFORCE_EAGER=false` lets
+vLLM use CUDA graphs for the AWQ captioner when VRAM headroom permits.
 
-SeedVR2 uses the fp8 mixed model variant:
+SeedVR2 uses the 3B FP8 model variant by default on `fp8_version`:
 
 ```bash
 UPSCALE_MODEL_PATH=/workspace/models/seedvr2
-UPSCALE_MODEL_VARIANT=seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors
+UPSCALE_MODEL_VARIANT=seedvr2_ema_3b_fp8_e4m3fn.safetensors
 UPSCALE_CLI_PATH=/workspace/seedvr2_eval/ComfyUI-SeedVR2_VideoUpscaler/inference_cli.py
 ```
 
@@ -147,7 +147,8 @@ The SeedVR2 CLI also requires `ema_vae_fp16.safetensors` in the same model direc
 
 | file | size | note |
 |---|---:|---|
-| `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors` | 7.9 GB | DiT model |
+| `seedvr2_ema_3b_fp8_e4m3fn.safetensors` | 3B FP8 | default DiT model |
+| `seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors` | 7.9 GB | supported fallback DiT model |
 | `ema_vae_fp16.safetensors` | 479 MB | required VAE, SHA256 `20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1` |
 
 ## Validation gates
@@ -178,13 +179,14 @@ because it actually loads Qwen, MiniCPM, detector, Marqo, and optionally SeedVR2
 - Fashion detector is staged at `/workspace/models/fashion-object-detection` (~169 MB).
 - Marqo fashionSigLIP is staged at `/workspace/models/marqo-fashionSigLIP` (~4.6 GB).
 - SeedVR2 CLI is staged at `/workspace/seedvr2_eval/ComfyUI-SeedVR2_VideoUpscaler` (~74 MB).
-- SeedVR2 fp8 mixed DiT + VAE are staged at `/workspace/models/seedvr2` (~8.4 GB).
+- SeedVR2 3B FP8 DiT, 7B mixed fallback, and VAE are staged at `/workspace/models/seedvr2`.
 - SeedVR2 lightweight warmup passes with backend `cuda`.
 
 ## Resident VRAM measurement
 
-Measured on `sporting_violet_lemming` with RTX PRO 6000 Blackwell 96 GB, torch `2.11.0+cu130`,
-vLLM `0.22.1`, Qwen bf16, MiniCPM AWQ with auto KV cache, and SeedVR2 7B fp8 mixed:
+Older bf16 baseline measured on `sporting_violet_lemming` with RTX PRO 6000 Blackwell 96 GB,
+torch `2.11.0+cu130`, vLLM `0.22.1`, Qwen bf16, MiniCPM AWQ with auto KV cache, and SeedVR2
+7B fp8 mixed:
 
 | stage | used VRAM | free VRAM |
 |---|---:|---:|
@@ -197,6 +199,11 @@ vLLM `0.22.1`, Qwen bf16, MiniCPM AWQ with auto KV cache, and SeedVR2 7B fp8 mix
 
 For the all-resident pod, keep `MINICPM_GPU_MEMORY_UTILIZATION` explicit. The current AWQ profile
 uses `0.10`; clear stale vLLM workers before warmup and verify with `nvidia-smi` after warmup.
+
+Live `fp8_version` run on `select_green_guineafowl` (`dt3jjdcekx1lvl`) with Qwen fp8+compile,
+wardrobe steps `12`, MiniCPM AWQ, detector, Marqo, and SeedVR2 3B loaded reached health OK at
+about `65,954 MiB / 97,887 MiB` VRAM, but real wardrobe requests re-triggered compile. The
+correct multi-adapter API config is now `QWEN_FP8=1` with `QWEN_COMPILE=0`.
 - Stage wardrobe LoRAs into `/workspace/loras/wardrobe`.
 - Fill `.env` with Azure, JWT, Glamify backend URL, and selected resident runtimes.
 - Start the service with the RunPod launch script:

@@ -29,7 +29,9 @@ $PY -m pip install "vllm==0.22.1"
 $PY -m pip install "transformers>=4.57,<5"
 
 # 4) diffusers stack for the Qwen extraction engine.
-$PY -m pip install "diffusers==0.38.0" "accelerate>=1.0" "safetensors>=0.4"
+# torchao is required for QWEN_FP8=1; fp8 is a quantized transformer path, not a
+# torch_dtype passed into diffusers.
+$PY -m pip install "diffusers==0.38.0" "accelerate>=1.0" "safetensors>=0.4" "torchao>=0.14"
 
 # 5) open_clip for the Marqo fashionSigLIP classifier.
 $PY -m pip install "open_clip_torch>=2.24"

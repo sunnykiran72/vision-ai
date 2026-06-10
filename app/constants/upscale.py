@@ -26,7 +26,7 @@ KNOWN_SEEDVR2_VARIANTS: tuple[dict[str, str], ...] = (
     },
     {
         "filename": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
-        "label": "3B - FP8 (e4m3fn)",
+        "label": "3B - FP8 (e4m3fn, current prod default)",
         "model": "3B",
         "precision": "fp8",
         "approx_size": "3.4 GB",
@@ -47,7 +47,7 @@ KNOWN_SEEDVR2_VARIANTS: tuple[dict[str, str], ...] = (
     },
     {
         "filename": "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors",
-        "label": "7B - FP8 mixed block35 (current prod)",
+        "label": "7B - FP8 mixed block35",
         "model": "7B",
         "precision": "fp8-mixed",
         "approx_size": "8.5 GB",

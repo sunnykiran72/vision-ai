@@ -33,7 +33,7 @@ MINICPM_RESIZE_LONG_PX = 1024
 OUTPUT_WIDTH = 832
 OUTPUT_HEIGHT = 1248
 GENERATION_SEED = 7777
-GENERATION_STEPS = 10
+GENERATION_STEPS = 12
 GENERATION_GUIDANCE_SCALE = 1.0
 GENERATION_GUIDANCE_RESCALE = 0.0
 GENERATION_NETWORK_MULTIPLIER = 1.0
@@ -56,9 +56,8 @@ MINICPM_PROMPT_BY_TYPE = {
     "top": """
 You are a fashion product specialist writing a precise prompt used to regenerate this
 garment as an image. Describe ONLY the top garment. Completely ignore the person (face, hair,
-skin, body, midriff, pose), the lower-body garment, footwear, accessories (including any belt
-or sash worn over it), and the background. Describe the garment in its own natural form, not how
-it is styled, tied or cinched.
+skin, body, midriff, pose), the lower-body garment, footwear, accessories, and the background.
+Describe the garment in its own natural form, not how it is styled, tied or cinched.
 
 Write ONE flowing prompt of ~15-55 words using concrete, factual terms only. Every attribute
 you mention must have a concrete value; never output an attribute word on its own. Do not repeat
@@ -69,14 +68,16 @@ never guess hidden parts: garment type/subtype; neckline and collar style; sleev
 style, length and cuffs; shoulder style; closure type, count and placement; fit and silhouette;
 length and hem shape/finish; fabric, material and texture; colour(s) and where each sits; print
 or pattern and its placement; structural details; pockets; and trims, embellishments and
-hardware.""",
+hardware. In addition, call out at least two of the top's most distinctive visible features —
+any defining detail the list above does not already cover, so its unique look is never missed.
+Still never guess hidden or unclear parts.""",
 
     "bottom": """
 You are a fashion product specialist writing a precise prompt used to regenerate this
 garment as an image. Describe ONLY the bottom garment. Completely ignore the person (face, hair,
-skin, body, waist, midriff, legs, pose), the upper-body garment, footwear, accessories (including
-any belt or sash worn over or threaded through it), and the background. Describe the garment in
-its own natural form, not how it is styled, tucked, rolled or cuffed.
+skin, body, waist, midriff, legs, pose), the upper-body garment, footwear, accessories, and the
+background. Describe the garment in its own natural form, not how it is styled, tucked, rolled
+or cuffed.
 
 Write ONE flowing prompt of ~15-55 words using concrete, factual terms only. Every attribute
 you mention must have a concrete value; never output an attribute word on its own. Do not repeat
@@ -87,7 +88,9 @@ never guess hidden parts: garment type/subtype; waistband style and rise; closur
 and placement; fit and silhouette; leg or skirt opening, length and hem shape/finish; fabric,
 material and texture; colour(s) and where each sits; print or pattern and its placement;
 structural details (pleats, darts, seams, panels, belt loops); pockets; and trims, embellishments
-and hardware.""",
+and hardware. In addition, call out at least two of the bottom's most distinctive visible
+features — any defining detail the list above does not already cover, so its unique look is
+never missed. Still never guess hidden or unclear parts.""",
 
     "dress": """
 You are a fashion product specialist writing a precise prompt used to regenerate this
@@ -105,7 +108,9 @@ never guess hidden parts: garment type/subtype; neckline and collar style; sleev
 length and cuffs; shoulder style; bodice and waist construction; closure type, count and
 placement; fit and silhouette; skirt style, length and hem shape/finish; fabric, material and
 texture; colour(s) and where each sits; print or pattern and its placement; structural details;
-pockets; and trims, embellishments and hardware.""",
+pockets; and trims, embellishments and hardware. In addition, call out at least two of the
+dress's most distinctive visible features — any defining detail the list above does not already
+cover, so its unique look is never missed. Still never guess hidden or unclear parts.""",
 
 }
 

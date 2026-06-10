@@ -78,16 +78,16 @@ def test_run_upscale_request_returns_success_without_storage(
         def __init__(self, _settings: Settings):
             self.is_configured = True
 
-        def upload_file(
+        def upload_bytes(
             self,
-            file_path: Path,
+            content: bytes,
             *,
             object_name: str,
             content_type: str | None = None,
         ) -> str:
-            assert file_path.exists()
-            assert object_name.endswith("/output.png")
-            assert content_type == "image/png"
+            assert content
+            assert object_name.endswith("/output.jpg")
+            assert content_type == "image/jpeg"
             return f"https://example.com/{object_name}"
 
     monkeypatch.setattr(upscale_service, "AzureStorageClient", FakeStorageClient)

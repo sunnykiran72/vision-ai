@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Try-on Lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: #0e0f13; color: #e6e7ea; }
+  header { padding: 16px 22px; border-bottom: 1px solid #23252c; display: flex; align-items: baseline; gap: 14px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: #8a8f99; font-size: 13px; }
+  .wrap { display: grid; grid-template-columns: 420px 1fr; gap: 0; min-height: calc(100vh - 58px); }
+  .panel { padding: 20px 22px; }
+  .panel.left { border-right: 1px solid #23252c; }
+  fieldset { border: 1px solid #2a2d36; border-radius: 10px; margin: 0 0 16px; padding: 14px; }
+  legend { color: #aab; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding: 0 6px; }
+  label { display: block; font-size: 12px; color: #9aa0aa; margin: 10px 0 4px; }
+  input[type=file], input[type=number], select, textarea {
+    width: 100%; background: #15171d; border: 1px solid #2c2f39; color: #e6e7ea;
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  textarea { min-height: 60px; resize: vertical; font-family: inherit; }
+  .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .garment { border: 1px solid #2a2d36; border-radius: 10px; padding: 12px; margin-bottom: 12px; position: relative; }
+  .garment .rm { position: absolute; right: 8px; top: 8px; background: #3a1d1d; border: 1px solid #5b2b2b;
+                 color: #f1a3a3; border-radius: 6px; cursor: pointer; font-size: 12px; padding: 2px 8px; }
+  .thumb { max-width: 100%; max-height: 120px; border-radius: 6px; margin-top: 8px; display: none; border: 1px solid #2c2f39; }
+  button.action { background: #2b6cff; border: 0; color: white; padding: 10px 16px; border-radius: 8px;
+                  font-size: 14px; cursor: pointer; font-weight: 600; }
+  button.ghost { background: #1b1e25; border: 1px solid #2c2f39; color: #cdd2db; padding: 8px 12px;
+                 border-radius: 8px; cursor: pointer; font-size: 13px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+  #status { font-size: 13px; color: #9aa0aa; margin-left: 4px; }
+  .out-img { max-width: 100%; border-radius: 10px; border: 1px solid #2c2f39; background: #15171d; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13px; }
+  .kv .k { color: #8a8f99; }
+  .promptbox { background: #15171d; border: 1px solid #2c2f39; border-radius: 8px; padding: 12px;
+               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+               line-height: 1.5; white-space: pre-wrap; color: #cfe3ff; }
+  table.timings { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.timings td { padding: 4px 10px; border-bottom: 1px solid #20232b; }
+  table.timings td.v { text-align: right; font-variant-numeric: tabular-nums; color: #b9f0c8; }
+  table.timings tr.total td { font-weight: 700; border-top: 2px solid #2c2f39; }
+  pre.json { background: #121319; border: 1px solid #23262f; border-radius: 8px; padding: 14px;
+             font-size: 12px; overflow: auto; max-height: 420px; color: #cdd2db; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #aab; margin: 22px 0 8px; }
+  .pill { display: inline-block; background: #15301f; border: 1px solid #2c6b45; color: #8be0aa;
+          border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+  .err { background: #2a1414; border: 1px solid #5b2b2b; color: #f3b0b0; border-radius: 8px; padding: 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Try-on Lab</h1>
+  <span>POST /tools/tryon-lab/run &middot; real fp8 Qwen engine &middot; prompt + metadata + timings</span>
+</header>
+<div class="wrap">
+  <div class="panel left">
+    <fieldset>
+      <legend>Person (image 1)</legend>
+      <input type="file" id="person" accept="image/*" />
+      <img class="thumb" id="personThumb" />
+    </fieldset>
+
+    <fieldset>
+      <legend>Garments (image 2)</legend>
+      <div id="garments"></div>
+      <button class="ghost" id="addGarment" type="button">+ Add garment</button>
+      <div style="color:#8a8f99;font-size:12px;margin-top:8px">1 garment &rarr; top/bottom/dress LoRA &middot; 2+ &rarr; multi LoRA</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Settings</legend>
+      <div class="row">
+        <div><label>Steps</label><input type="number" id="steps" value="12" min="1" max="60" /></div>
+        <div><label>Seed</label><input type="number" id="seed" value="7777" /></div>
+        <div><label>Guidance (cfg)</label><input type="number" id="guidance" value="1.0" step="0.1" /></div>
+      </div>
+      <label style="margin-top:12px"><input type="checkbox" id="upscale" checked style="width:auto;margin-right:8px" />Inline SeedVR2 upscale (2730 &rarr; 2048)</label>
+    </fieldset>
+
+    <div class="actions">
+      <button class="action" id="run" type="button">Run try-on</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel right">
+    <div id="error" style="display:none" class="err"></div>
+    <div id="result" style="display:none">
+      <h3>Output</h3>
+      <img class="out-img" id="outImg" />
+      <div style="margin-top:10px" class="kv">
+        <div class="k">LoRA</div><div><span class="pill" id="loraKey"></span></div>
+        <div class="k">Qwen output</div><div id="qwenSize"></div>
+        <div class="k">Final output</div><div id="finalSize"></div>
+        <div class="k">Garment ref</div><div id="refSize"></div>
+      </div>
+
+      <h3>Prompt sent to Qwen</h3>
+      <div class="promptbox" id="promptText"></div>
+
+      <h3>Timings</h3>
+      <table class="timings"><tbody id="timings"></tbody></table>
+
+      <h3>Full metadata (JSON)</h3>
+      <pre class="json" id="rawJson"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+const TYPES = ["top", "bottom", "dress", "outer"];
+const garmentsEl = document.getElementById("garments");
+
+function addGarment(type = "top") {
+  const idx = garmentsEl.children.length;
+  const div = document.createElement("div");
+  div.className = "garment";
+  div.innerHTML = `
+    <button class="rm" type="button">remove</button>
+    <label>Garment image</label>
+    <input type="file" class="g-img" accept="image/*" />
+    <img class="thumb g-thumb" />
+    <div class="row" style="grid-template-columns:1fr 2fr;margin-top:8px">
+      <div><label>Type</label><select class="g-type">${TYPES.map(t => `<option ${t===type?"selected":""}>${t}</option>`).join("")}</select></div>
+      <div><label>Description (garment prompt)</label><input type="text" class="g-prompt" placeholder="e.g. red ribbed sleeveless top" /></div>
+    </div>`;
+  div.querySelector(".rm").onclick = () => { div.remove(); };
+  const fileInput = div.querySelector(".g-img");
+  const thumb = div.querySelector(".g-thumb");
+  fileInput.onchange = () => previewInto(fileInput, thumb);
+  garmentsEl.appendChild(div);
+}
+
+function previewInto(input, img) {
+  const f = input.files && input.files[0];
+  if (!f) { img.style.display = "none"; return; }
+  img.src = URL.createObjectURL(f); img.style.display = "block";
+}
+
+document.getElementById("addGarment").onclick = () => addGarment();
+document.getElementById("person").onchange = () =>
+  previewInto(document.getElementById("person"), document.getElementById("personThumb"));
+addGarment("top");
+
+document.getElementById("run").onclick = async () => {
+  const btn = document.getElementById("run");
+  const status = document.getElementById("status");
+  const errEl = document.getElementById("error");
+  const resEl = document.getElementById("result");
+  errEl.style.display = "none";
+
+  const personFile = document.getElementById("person").files[0];
+  if (!personFile) { errEl.textContent = "Please choose a person image."; errEl.style.display = "block"; return; }
+
+  const rows = [...garmentsEl.children];
+  const fd = new FormData();
+  fd.append("person", personFile);
+  let count = 0;
+  for (const row of rows) {
+    const gf = row.querySelector(".g-img").files[0];
+    if (!gf) continue;
+    fd.append("garments", gf);
+    fd.append("types", row.querySelector(".g-type").value);
+    fd.append("prompts", row.querySelector(".g-prompt").value || "");
+    count++;
+  }
+  if (count === 0) { errEl.textContent = "Please add at least one garment image."; errEl.style.display = "block"; return; }
+  fd.append("steps", document.getElementById("steps").value);
+  fd.append("seed", document.getElementById("seed").value);
+  fd.append("guidance_scale", document.getElementById("guidance").value);
+  fd.append("upscale", document.getElementById("upscale").checked ? "true" : "false");
+
+  btn.disabled = true;
+  const t0 = performance.now();
+  status.textContent = "Running… (first call may compile)";
+  const timer = setInterval(() => { status.textContent = `Running… ${((performance.now()-t0)/1000).toFixed(1)}s`; }, 200);
+  try {
+    const resp = await fetch("/tools/tryon-lab/run", { method: "POST", body: fd });
+    const data = await resp.json();
+    clearInterval(timer);
+    if (!data.ok) { errEl.textContent = "Error: " + (data.error || resp.status); errEl.style.display = "block"; resEl.style.display = "none"; return; }
+    render(data);
+    status.textContent = `Done in ${((performance.now()-t0)/1000).toFixed(1)}s (server total ${data.timings.total_seconds}s)`;
+  } catch (e) {
+    clearInterval(timer);
+    errEl.textContent = "Request failed: " + e; errEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+function render(d) {
+  document.getElementById("result").style.display = "block";
+  document.getElementById("outImg").src = d.output.image;
+  document.getElementById("loraKey").textContent = d.lora_key;
+  document.getElementById("qwenSize").textContent = `${d.qwen_output_size.width} × ${d.qwen_output_size.height}`;
+  document.getElementById("finalSize").textContent = `${d.output.width} × ${d.output.height}`;
+  document.getElementById("refSize").textContent = `${d.garment_reference.width} × ${d.garment_reference.height} (${d.garment_reference.mode})`;
+  document.getElementById("promptText").textContent = d.prompt;
+  const order = ["reference_build_seconds","qwen_generation_seconds","qwen_generation_queued_wall_seconds",
+                 "seedvr2_upscale_seconds","seedvr2_upscale_wall_seconds","encode_seconds","total_seconds"];
+  const tb = document.getElementById("timings"); tb.innerHTML = "";
+  for (const k of order) {
+    if (!(k in d.timings)) continue;
+    const tr = document.createElement("tr");
+    if (k === "total_seconds") tr.className = "total";
+    tr.innerHTML = `<td>${k.replace(/_/g," ")}</td><td class="v">${d.timings[k]} s</td>`;
+    tb.appendChild(tr);
+  }
+  const clone = JSON.parse(JSON.stringify(d));
+  if (clone.output) clone.output.image = "<" + (d.output.image.length) + " base64 chars>";
+  document.getElementById("rawJson").textContent = JSON.stringify(clone, null, 2);
+}
+</script>
+</body>
+</html>

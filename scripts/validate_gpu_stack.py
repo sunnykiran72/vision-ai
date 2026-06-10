@@ -62,6 +62,15 @@ def main() -> int:
 
         return "load_file importable"
 
+    def torchao_info() -> str:
+        import torchao
+        from torchao.quantization import (  # noqa: F401
+            Float8DynamicActivationFloat8WeightConfig,
+            quantize_,
+        )
+
+        return getattr(torchao, "__version__", "unknown")
+
     def opencv_info() -> str:
         import cv2
 
@@ -73,6 +82,7 @@ def main() -> int:
     ok &= _check("vllm", vllm_info)
     ok &= _check("open_clip (Marqo)", open_clip_info)
     ok &= _check("safetensors", safetensors_info)
+    ok &= _check("torchao (Qwen fp8)", torchao_info)
     ok &= _check("opencv (user validation blur)", opencv_info)
 
     print("\nRESULT:", "PASS" if ok else "FAIL")

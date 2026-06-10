@@ -8,6 +8,7 @@ from typing import TypeVar
 from PIL import Image
 from pytest import MonkeyPatch
 
+from app.clients.seedvr2 import SeedVR2RunResult
 from app.config import Settings
 from app.models.tryon import TryonRequest
 from app.runtime.tryon_types import TryonRunResult
@@ -99,6 +100,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
 
     settings = Settings(
         QWEN_IMAGE_EDIT_MODEL_PATH="/workspace/models/qwen-image-edit-2511",
+        TRYON_UPSCALE_AFTER_QWEN=False,
     )
     payload = TryonRequest.model_validate(
         {
@@ -121,7 +123,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     assert response.data.metadata["reference"]["product_reference_mode"] == "single_product"
     assert response.data.metadata["reference"]["control_order"]["image_1"] == "person"
     assert response.data.metadata["reference"]["control_order"]["image_2"] == "garment_reference"
-    assert response.data.metadata["resolved_settings"]["seed"] == 43
+    assert response.data.metadata["resolved_settings"]["seed"] == 7777
     assert response.data.metadata["resolved_settings"]["steps"] == 12
     assert response.data.metadata["output"]["width"] == 512
     assert response.data.metadata["output"]["height"] == 768
@@ -129,7 +131,7 @@ def test_run_tryon_request_returns_success_and_cleans_workspace(
     assert response.data.metadata["output"]["inference_height"] == 768
     assert response.data.metadata["routing"]["lora_key"] == "top"
     assert response.data.metadata["reference"]["garment_reference_max_edge"] == 768
-    assert not any(tmp_path.iterdir())
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
 
 
 def test_tryon_uses_person_dimensions_and_caps_garment_reference(
@@ -214,7 +216,11 @@ def test_tryon_uses_person_dimensions_and_caps_garment_reference(
         },
     )
 
-    response = tryon_service.run_tryon_request(payload, settings=Settings(), user_id="user-123")
+    response = tryon_service.run_tryon_request(
+        payload,
+        settings=Settings(TRYON_UPSCALE_AFTER_QWEN=False),
+        user_id="user-123",
+    )
 
     assert response.status == 200
     assert response.data is not None
@@ -224,6 +230,142 @@ def test_tryon_uses_person_dimensions_and_caps_garment_reference(
         "width": 768,
         "height": 576,
     }
+
+
+def test_tryon_inline_upscale_outputs_2048_long_edge(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image_bytes = _build_png_bytes(512, 768)
+
+    monkeypatch.setattr(
+        tryon_service,
+        "download_media_from_url",
+        lambda url: DownloadedMedia(
+            content=image_bytes,
+            content_type="image/png",
+            source_url=url,
+            filename="image.png",
+        ),
+    )
+
+    class FakeQwenClient:
+        def run_tryon(
+            self,
+            *,
+            person_image: Image.Image,
+            garment_reference_image: Image.Image,
+            prompt: str,
+            steps: int,
+            guidance_scale: float,
+            seed: int,
+            output_width: int,
+            output_height: int,
+            lora_key: str | None = None,
+        ) -> TryonRunResult:
+            del person_image, garment_reference_image, prompt, steps, guidance_scale, seed, lora_key
+            return TryonRunResult(
+                image=Image.new("RGB", (output_width, output_height), "white"),
+                metadata={"backend": "diffusers_qwen_image_edit_plus"},
+                wall_seconds=1.2,
+            )
+
+    class FakeSeedVR2Client:
+        def run(
+            self,
+            *,
+            input_path: Path,
+            output_path: Path,
+            log_path: Path,
+            target_long_edge: int,
+        ) -> SeedVR2RunResult:
+            assert target_long_edge == 3072
+            with Image.open(input_path) as image:
+                assert image.size == (512, 768)
+            Image.new("RGB", (2048, 3072), "white").save(output_path, format="PNG")
+            log_path.write_text("ok", encoding="utf-8")
+            return SeedVR2RunResult(
+                output_path=output_path,
+                output_width=2048,
+                output_height=3072,
+                wall_seconds=3.5,
+                target_long_edge=3072,
+                derived_short_edge=2048,
+                model_variant="seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+                log_path=log_path,
+                runner_backend="cuda",
+            )
+
+    monkeypatch.setattr(tryon_service, "get_tryon_runner", lambda *_args: FakeQwenClient())
+    monkeypatch.setattr(tryon_service, "get_upscale_runner", lambda *_args: FakeSeedVR2Client())
+
+    class ImmediateCoordinator:
+        def run(self, fn: Callable[[], T]) -> T:
+            return fn()
+
+    monkeypatch.setattr(
+        tryon_service,
+        "get_system_execution_coordinator",
+        lambda *_args: ImmediateCoordinator(),
+    )
+    monkeypatch.setattr(
+        tryon_service,
+        "get_upscale_execution_coordinator",
+        lambda *_args: ImmediateCoordinator(),
+    )
+
+    uploaded_dimensions: list[tuple[int, int]] = []
+
+    class FakeStorageClient:
+        def __init__(self, _settings: Settings):
+            self.is_configured = True
+
+        def upload_bytes(
+            self,
+            content: bytes,
+            *,
+            object_name: str,
+            content_type: str | None = None,
+        ) -> str:
+            del object_name, content_type
+            with Image.open(BytesIO(content)) as image:
+                uploaded_dimensions.append(image.size)
+            return "https://example.com/output.jpg"
+
+    monkeypatch.setattr(tryon_service, "AzureStorageClient", FakeStorageClient)
+
+    payload = TryonRequest.model_validate(
+        {
+            "user_image": "https://example.com/user.png",
+            "products": [
+                {
+                    "image_url": "https://example.com/top.png",
+                    "type": "top",
+                    "prompt": "red jacket",
+                }
+            ],
+        },
+    )
+    settings = Settings(
+        UPSCALE_WORK_ROOT=str(tmp_path),
+        TRYON_UPSCALE_AFTER_QWEN=True,
+        TRYON_UPSCALE_TARGET_LONG_EDGE=3072,
+        TRYON_FINAL_OUTPUT_LONG_EDGE=2048,
+    )
+
+    response = tryon_service.run_tryon_request(payload, settings=settings, user_id="user-123")
+
+    assert response.status == 200
+    assert uploaded_dimensions == [(1365, 2048)]
+    assert response.data.metadata["output"]["qwen_width"] == 512
+    assert response.data.metadata["output"]["qwen_height"] == 768
+    assert response.data.metadata["output"]["width"] == 1365
+    assert response.data.metadata["output"]["height"] == 2048
+    assert response.data.metadata["upscale"]["enabled"] is True
+    assert response.data.metadata["upscale"]["model_variant"] == (
+        "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    )
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
 
 
 def test_tryon_returns_422_null_data_for_invalid_garment_image(
@@ -359,9 +501,12 @@ def test_specialist_prompt_uses_trigger_caption_and_product_detail() -> None:
     prompt = tryon_service._build_specialist_prompt(payload.products, routing, settings)
 
     assert prompt == (
-        "Apply GlamifyTopTryon on this person. "
-        "Top: red structured jacket with notched lapels. "
-        "Preserve the person's face, identity, body proportions, pose, and background."
+        "Apply GlamifyTopTryon on this person. Replace the entire top garment on the person in "
+        "image 1 with the red structured jacket with notched lapels from image 2. Remove any "
+        "outer layer or jacket completely if present. Strictly preserve the person's face, "
+        "identity, hair, skin tone, body shape, body size, body proportions, hands, pose and the "
+        "background exactly; change only the top garment, fitting it naturally to the body with "
+        "realistic drape."
     )
 
 
@@ -466,10 +611,12 @@ def test_specialist_prompt_multi_lists_each_category() -> None:
     prompt = tryon_service._build_specialist_prompt(payload.products, routing, settings)
 
     assert prompt == (
-        "Apply GlamifyMultiTryon on this person. "
-        "Top: red structured jacket. "
-        "Bottom: black straight trousers. "
-        "Preserve the person's face, identity, body proportions, pose, and background."
+        "Apply GlamifyMultiTryon on this person. Replace the person's outfit in image 1 with the "
+        "Top: red structured jacket and Bottom: black straight trousers from image 2. Remove any "
+        "outer layer or jacket completely if present. Strictly preserve the person's face, "
+        "identity, hair, skin tone, body shape, body size, body proportions, hands, pose and the "
+        "background exactly; change only the specified garments, fitting them naturally to the "
+        "body with realistic drape."
     )
 
 

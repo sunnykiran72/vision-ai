@@ -78,10 +78,13 @@ class QwenDiffusersWardrobeEngine:
         self._loaded_loras: set[str] = set()
         self._active_lora: str | None = None
         self._compiled = False
+        self._fp8_quantized = False
+        self._quantization = "none"
         self._device = "cpu"
         self._dtype_name = "float32"
         self._load_lock = threading.Lock()
         self._compile_lock = threading.Lock()
+        self._quantize_lock = threading.Lock()
         self._infer_lock = threading.Lock()
 
     # ----- lifecycle -------------------------------------------------------
@@ -90,6 +93,9 @@ class QwenDiffusersWardrobeEngine:
         self._ensure_pipeline()
         for category in WARDROBE_CATEGORIES:
             self._ensure_lora("wardrobe", category)
+        if self._settings.qwen_fp8:
+            for category in self._configured_tryon_lora_keys():
+                self._ensure_lora("tryon", category)
         warm = Image.new(
             "RGB",
             (wardrobe_constants.OUTPUT_WIDTH, wardrobe_constants.OUTPUT_HEIGHT),
@@ -113,9 +119,11 @@ class QwenDiffusersWardrobeEngine:
                 lora_scale=wardrobe_constants.GENERATION_NETWORK_MULTIPLIER,
             )
         logger.info(
-            "Qwen wardrobe diffusers runtime ready (device=%s, dtype=%s, compile=%s, loras=%s, warm=%.1fs)",
+            "Qwen wardrobe diffusers runtime ready "
+            "(device=%s, dtype=%s, quantization=%s, compile=%s, loras=%s, warm=%.1fs)",
             self._device,
             self._dtype_name,
+            self._quantization,
             self._compiled,
             sorted(self._loaded_loras),
             time.perf_counter() - started,
@@ -195,6 +203,8 @@ class QwenDiffusersWardrobeEngine:
                 "height": wardrobe_constants.OUTPUT_HEIGHT,
             },
             "dtype": self._dtype_name,
+            "quantization": self._quantization,
+            "fp8": self._fp8_quantized,
             "device": self._device,
             "compiled": self._compiled,
         }
@@ -284,6 +294,8 @@ class QwenDiffusersWardrobeEngine:
                 "height": int(output_height),
             },
             "dtype": self._dtype_name,
+            "quantization": self._quantization,
+            "fp8": self._fp8_quantized,
             "device": self._device,
             "compiled": self._compiled,
         }
@@ -313,6 +325,7 @@ class QwenDiffusersWardrobeEngine:
         self._ensure_lora(namespace, category)
         if self._pipeline is None or self._torch is None:
             raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
+        self._ensure_fp8_quantized()
         self._ensure_compiled()
         adapter = _adapter_name(namespace, category)
         with self._infer_lock:
@@ -391,23 +404,66 @@ class QwenDiffusersWardrobeEngine:
             if self._compiled or not self._settings.qwen_compile:
                 return
             transformer = getattr(self._pipeline, "transformer", None)
-            blocks = getattr(transformer, "transformer_blocks", None)
-            if blocks is None:
+            if transformer is None or not hasattr(transformer, "compile_repeated_blocks"):
                 raise WardrobeDiffusersRuntimeError(
-                    "QWEN_COMPILE=1 requires pipeline.transformer.transformer_blocks.",
+                    "QWEN_COMPILE=1 requires pipeline.transformer.compile_repeated_blocks "
+                    "(diffusers >= 0.32).",
                 )
-            for index, block in enumerate(blocks):
-                blocks[index] = self._torch.compile(block, dynamic=False)
+            # compile_repeated_blocks compiles the single repeated transformer block once
+            # and reuses that graph across every block, all loaded LoRA adapters, and
+            # variable input shapes. The previous per-block torch.compile(dynamic=False)
+            # loop recompiled on every new input size / adapter switch, so the fp8 GEMM
+            # never stayed fused and inference ran eager (~1.6s/step) at request time.
+            # Benchmarked on RTX PRO 6000 (832x1248, 15 steps): warm ~7.8s with 3 live
+            # adapters (vs ~18-22s eager), stable across adapter switches and input shapes.
+            transformer.compile_repeated_blocks(fullgraph=False)
             self._compiled = True
             logger.info(
-                "Compiled Qwen transformer blocks with torch.compile(dynamic=False): %d blocks",
-                len(blocks),
+                "Compiled Qwen transformer via compile_repeated_blocks(fullgraph=False).",
             )
+
+    def _ensure_fp8_quantized(self) -> None:
+        if self._fp8_quantized or not self._settings.qwen_fp8:
+            return
+        if self._device != "cuda":
+            raise WardrobeDiffusersRuntimeError(
+                "QWEN_FP8=1 requires CUDA. Use QWEN_FP8=0 for CPU/local tests.",
+            )
+        if self._pipeline is None:
+            raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
+        with self._quantize_lock:
+            if self._fp8_quantized or not self._settings.qwen_fp8:
+                return
+            for namespace, category in self._configured_lora_keys():
+                self._ensure_lora(namespace, category)
+            try:
+                from torchao.quantization import (  # type: ignore[import-not-found]
+                    Float8DynamicActivationFloat8WeightConfig,
+                    quantize_,
+                )
+            except Exception as exc:  # pragma: no cover - environment dependency
+                raise WardrobeDiffusersRuntimeError(
+                    "QWEN_FP8=1 requires torchao. Install torchao in the GPU runtime stack.",
+                ) from exc
+            transformer = getattr(self._pipeline, "transformer", None)
+            if transformer is None:
+                raise WardrobeDiffusersRuntimeError(
+                    "QWEN_FP8=1 requires pipeline.transformer to be available.",
+                )
+            quantize_(transformer, Float8DynamicActivationFloat8WeightConfig())
+            self._fp8_quantized = True
+            self._quantization = "torchao_float8_dynamic_activation_float8_weight"
+            logger.info("Quantized Qwen transformer with torchao fp8 dynamic activation/weight.")
 
     def _ensure_lora(self, namespace: str, category: str) -> None:
         adapter = _adapter_name(namespace, category)
         if adapter in self._loaded_loras:
             return
+        if self._fp8_quantized:
+            raise WardrobeDiffusersRuntimeError(
+                "Cannot load a new Qwen LoRA after QWEN_FP8 quantization. "
+                "Configure all required wardrobe/try-on LoRA paths before warmup.",
+            )
         if self._pipeline is None:
             raise WardrobeDiffusersRuntimeError("Qwen wardrobe diffusers pipeline is not loaded.")
         path = self._lora_path(namespace, category)
@@ -435,7 +491,13 @@ class QwenDiffusersWardrobeEngine:
         }
         self._pipeline.load_lora_weights(remapped, adapter_name=adapter)
         self._loaded_loras.add(adapter)
-        logger.info("Loaded %s LoRA '%s' as adapter '%s' from %s", namespace, category, adapter, path)
+        logger.info(
+            "Loaded %s LoRA '%s' as adapter '%s' from %s",
+            namespace,
+            category,
+            adapter,
+            path,
+        )
 
     def _lora_path(self, namespace: str, category: str) -> Path:
         if namespace == "wardrobe":
@@ -446,6 +508,23 @@ class QwenDiffusersWardrobeEngine:
 
     def _expected_tryon_lora_keys(self) -> tuple[str, ...]:
         return TRYON_CATEGORIES
+
+    def _configured_tryon_lora_keys(self) -> tuple[str, ...]:
+        return tuple(
+            category
+            for category in TRYON_CATEGORIES
+            if str(self._tryon_lora_paths[category]).strip()
+            and self._tryon_lora_paths[category] != Path(".")
+        )
+
+    def _configured_lora_keys(self) -> tuple[tuple[str, str], ...]:
+        keys: list[tuple[str, str]] = []
+        for category in WARDROBE_CATEGORIES:
+            path = self._lora_paths[category]
+            if str(path).strip() and path != Path("."):
+                keys.append(("wardrobe", category))
+        keys.extend(("tryon", category) for category in self._configured_tryon_lora_keys())
+        return tuple(keys)
 
     def _resolve_tryon_lora_key(self, lora_key: str | None) -> str:
         resolved = str(lora_key or "").strip().lower()
@@ -466,12 +545,15 @@ def _resolve_torch_dtype(*, torch_module: Any, requested: str, device: str) -> A
         "fp16": "float16",
         "float16": "float16",
         "half": "float16",
-        "fp8": "float8_e4m3fn",
-        "float8": "float8_e4m3fn",
-        "float8_e4m3fn": "float8_e4m3fn",
         "fp32": "float32",
         "float32": "float32",
     }
+    if normalized in {"fp8", "float8", "float8_e4m3fn"}:
+        raise WardrobeDiffusersRuntimeError(
+            "QWEN_IMAGE_EDIT_DTYPE=float8 is not a valid diffusers load dtype. "
+            "Use QWEN_IMAGE_EDIT_DTYPE=bfloat16 with QWEN_FP8=1 so torchao can quantize "
+            "the loaded transformer with fp8 scales.",
+        )
     dtype_name = aliases.get(normalized)
     if dtype_name is None:
         supported = ", ".join(sorted(set(aliases)))

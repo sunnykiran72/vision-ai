@@ -24,6 +24,7 @@ def _runner_args(**overrides: object) -> dict[str, object]:
         "wardrobe_lora_dress_path": "/dress.safetensors",
         "qwen_image_edit_dtype": "bfloat16",
         "qwen_compile": False,
+        "qwen_fp8": False,
         "tryon_enabled_specialists": "top,bottom,dress,multi",
         "tryon_lora_top_path": "/tryon-top.safetensors",
         "tryon_lora_bottom_path": "/tryon-bottom.safetensors",

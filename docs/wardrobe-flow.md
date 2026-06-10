@@ -129,7 +129,7 @@ Current values:
 | Azure upload join timeout | `60s` |
 | Output size | `832x1248` |
 | Seed | `7777` (`GENERATION_SEED`) |
-| Steps | `10` (`GENERATION_STEPS`) |
+| Steps | `12` (`GENERATION_STEPS`) |
 | LoRA scale | `1.0` (`GENERATION_NETWORK_MULTIPLIER`) |
 | true_cfg_scale | `1.0` (`GENERATION_TRUE_CFG_SCALE`) |
 
@@ -151,9 +151,11 @@ The diffusers backend uses `seed`, `steps`, LoRA scale, and `true_cfg_scale`. Th
 `GENERATION_GUIDANCE_RESCALE` / `GENERATION_SAMPLER` / `GENERATION_DO_CFG_NORM` constants remain in
 the file for historical compatibility and are not used by wardrobe.
 
-Qwen diffusers dtype is controlled by `QWEN_IMAGE_EDIT_DTYPE`. Use `bfloat16` for the production
-baseline. `float8_e4m3fn` is available only as an experimental comparison path and should be judged
-by actual image output before production use.
+Qwen diffusers load dtype is controlled by `QWEN_IMAGE_EDIT_DTYPE`. Use `bfloat16` for the
+production baseline. Do not set this to `float8_e4m3fn`: diffusers cannot load Qwen Image Edit that
+way because fp8 needs quantized weights plus scales. The working fp8 path is
+`QWEN_IMAGE_EDIT_DTYPE=bfloat16` with `QWEN_FP8=1`, which quantizes the transformer with torchao
+after loading.
 
 Qwen transformer-block compilation is controlled by `QWEN_COMPILE`. The production default is
 `false`. When enabled, the wardrobe runtime compiles the Qwen transformer blocks with

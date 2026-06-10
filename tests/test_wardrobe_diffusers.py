@@ -61,8 +61,6 @@ class _TorchDtypes:
         ("bf16", _TorchDtypes.bfloat16),
         ("float16", _TorchDtypes.float16),
         ("fp16", _TorchDtypes.float16),
-        ("float8_e4m3fn", _TorchDtypes.float8_e4m3fn),
-        ("fp8", _TorchDtypes.float8_e4m3fn),
         ("float32", _TorchDtypes.float32),
     ],
 )
@@ -75,9 +73,15 @@ def test_resolve_torch_dtype_aliases(requested: str, expected: object) -> None:
 
 def test_resolve_torch_dtype_uses_float32_off_cuda() -> None:
     assert (
-        _resolve_torch_dtype(torch_module=_TorchDtypes, requested="float8_e4m3fn", device="cpu")
+        _resolve_torch_dtype(torch_module=_TorchDtypes, requested="bfloat16", device="cpu")
         is _TorchDtypes.float32
     )
+
+
+@pytest.mark.parametrize("requested", ["fp8", "float8", "float8_e4m3fn"])
+def test_resolve_torch_dtype_rejects_fp8_as_load_dtype(requested: str) -> None:
+    with pytest.raises(WardrobeDiffusersRuntimeError, match="QWEN_FP8=1"):
+        _resolve_torch_dtype(torch_module=_TorchDtypes, requested=requested, device="cuda")
 
 
 def test_resolve_torch_dtype_rejects_invalid_dtype() -> None:

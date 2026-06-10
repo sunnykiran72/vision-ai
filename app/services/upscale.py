@@ -40,11 +40,13 @@ def run_upscale_request(
         downloaded_media = download_media_from_url(str(payload.image_url))
         job_paths = build_job_media_paths(
             Path(resolved_settings.upscale_work_root),
+            input_extension=".png",
             output_extension=".png",
         )
         image = Image.open(BytesIO(downloaded_media.content)).convert("RGB")
         input_width, input_height = image.size
-        image.save(job_paths.input_path, format="JPEG", quality=95)
+        # Lossless PNG input — never JPEG-compress the image right before upscaling it.
+        image.save(job_paths.input_path, format="PNG")
 
         target_long_edge = _resolve_target_long_edge(payload.metric)
         input_long_edge = max(int(input_width), int(input_height))
@@ -115,12 +117,21 @@ def run_upscale_request(
             output_filename=None,
             prefix=storage_prefix,
             default_name="output",
-            extension=".png",
+            extension=".jpg",
         )
-        output_url = storage_client.upload_file(
-            job_paths.output_path,
+        # Deliver a JPEG (consistent with wardrobe/try-on, far smaller than a 4k PNG).
+        with Image.open(job_paths.output_path) as final_image:
+            output_buffer = BytesIO()
+            final_image.convert("RGB").save(
+                output_buffer,
+                format="JPEG",
+                quality=95,
+                subsampling=0,
+            )
+        output_url = storage_client.upload_bytes(
+            output_buffer.getvalue(),
             object_name=object_name,
-            content_type="image/png",
+            content_type="image/jpeg",
         )
 
         return UpscaleResponse(

@@ -19,6 +19,7 @@ def get_system_execution_coordinator(
     return _get_system_execution_coordinator_cached(
         resolved_settings.system_queue_max_size,
         resolved_settings.system_queue_wait_timeout_seconds,
+        resolved_settings.system_execution_timeout_seconds,
     )
 
 
@@ -26,8 +27,10 @@ def get_system_execution_coordinator(
 def _get_system_execution_coordinator_cached(
     max_queue_size: int,
     queue_wait_timeout_seconds: int,
+    max_execution_seconds: int,
 ) -> BoundedExecutionCoordinator[Any]:
     return BoundedExecutionCoordinator(
         max_queue_size=max_queue_size,
         queue_wait_timeout_seconds=queue_wait_timeout_seconds,
+        max_execution_seconds=max_execution_seconds,
     )

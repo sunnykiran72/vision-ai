@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import atexit
 import mimetypes
 import shutil
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +13,43 @@ import httpx
 
 DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 30
 DEFAULT_IMAGE_EXTENSION = ".jpg"
+
+_DEFAULT_DOWNLOAD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+# Process-wide pooled HTTP client: reused across downloads so repeat fetches to the same host (Azure
+# blob) skip the ~0.58s TCP+TLS handshake via keep-alive (measured: 1.77s cold -> ~0.36s reused).
+# httpx.Client is thread-safe for concurrent .get() (tryon downloads user+garment in a ThreadPool).
+_DOWNLOAD_CLIENT: httpx.Client | None = None
+_DOWNLOAD_CLIENT_LOCK = threading.Lock()
+
+
+def _get_download_client() -> httpx.Client:
+    global _DOWNLOAD_CLIENT
+    client = _DOWNLOAD_CLIENT
+    if client is None:
+        with _DOWNLOAD_CLIENT_LOCK:
+            client = _DOWNLOAD_CLIENT
+            if client is None:
+                client = httpx.Client(
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(float(DEFAULT_DOWNLOAD_TIMEOUT_SECONDS)),
+                    headers=_DEFAULT_DOWNLOAD_HEADERS,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20,
+                        max_connections=40,
+                        keepalive_expiry=60.0,
+                    ),
+                )
+                _DOWNLOAD_CLIENT = client
+                atexit.register(client.close)
+    return client
 
 
 @dataclass(frozen=True)
@@ -118,29 +157,21 @@ def download_media_from_url(
     source_url: str,
     timeout_seconds: int = DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
 ) -> DownloadedMedia:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    with httpx.Client(timeout=max(10, int(timeout_seconds)), follow_redirects=True) as client:
-        response = client.get(source_url, headers=headers)
-        response.raise_for_status()
-        content_type = response.headers.get("content-type")
-        extension = infer_extension_from_url_or_content_type(source_url, content_type)
-        filename = ensure_filename_extension(
-            Path(urlparse(source_url).path).name or "input",
-            extension,
-        )
-        return DownloadedMedia(
-            content=response.content,
-            content_type=content_type,
-            source_url=source_url,
-            filename=filename,
-        )
+    client = _get_download_client()
+    response = client.get(source_url, timeout=max(10, int(timeout_seconds)))
+    response.raise_for_status()
+    content_type = response.headers.get("content-type")
+    extension = infer_extension_from_url_or_content_type(source_url, content_type)
+    filename = ensure_filename_extension(
+        Path(urlparse(source_url).path).name or "input",
+        extension,
+    )
+    return DownloadedMedia(
+        content=response.content,
+        content_type=content_type,
+        source_url=source_url,
+        filename=filename,
+    )
 
 
 def write_bytes_to_file(path: Path, content: bytes) -> Path:

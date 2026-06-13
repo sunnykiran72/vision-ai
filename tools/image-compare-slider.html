@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Compare Slider</title>
+<style>
+  :root { --bg:#0e0f13; --panel:#1a1c22; --border:#2b2e37; --text:#e6e7ea; --muted:#9aa0ab; --accent:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  .drops { display:flex; gap:12px; flex-wrap:wrap; }
+  .drop {
+    border:1px dashed var(--border); border-radius:10px; padding:8px 14px; font-size:13px;
+    color:var(--muted); cursor:pointer; background:var(--panel); transition:.15s; user-select:none;
+  }
+  .drop:hover, .drop.over { border-color:var(--accent); color:var(--text); }
+  .drop.loaded { border-style:solid; border-color:#3a7d3a; color:#cfeccf; }
+  .toggle {
+    display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--panel);
+  }
+  .toggle button {
+    background:none; border:none; color:var(--muted); padding:8px 14px; font-size:13px; cursor:pointer;
+  }
+  .toggle button.active { background:var(--accent); color:#fff; }
+  .hint { font-size:12px; color:var(--muted); margin-left:auto; }
+  input[type=file] { display:none; }
+
+  .stage { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .compare {
+    position:relative; max-width:100%; line-height:0; user-select:none;
+    border-radius:12px; overflow:hidden; box-shadow:0 8px 40px rgba(0,0,0,.5); touch-action:none;
+  }
+  .compare img { display:block; max-width:100%; height:auto; pointer-events:none; }
+  .compare .after { position:absolute; top:0; left:0; overflow:hidden; }
+  /* horizontal: after pinned to right edge logic handled via width; vertical via height */
+  .compare.horizontal .after { height:100%; width:50%; }
+  .compare.horizontal .after img { height:100%; width:auto; max-width:none; }
+  .compare.vertical .after { width:100%; height:50%; }
+  .compare.vertical .after img { width:100%; height:auto; max-width:100%; }
+  .compare.empty { width:480px; height:300px; background:var(--panel); display:flex; align-items:center; justify-content:center; }
+  .compare.empty span { font-size:14px; color:var(--muted); line-height:1.5; text-align:center; }
+
+  .handle { position:absolute; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.3); }
+  .compare.horizontal .handle { top:0; bottom:0; width:2px; left:50%; transform:translateX(-50%); cursor:ew-resize; }
+  .compare.vertical .handle { left:0; right:0; height:2px; top:50%; transform:translateY(-50%); cursor:ns-resize; }
+  .handle::after {
+    content:""; position:absolute; top:50%; left:50%; width:40px; height:40px; transform:translate(-50%,-50%);
+    background:#fff; border-radius:50%; box-shadow:0 2px 10px rgba(0,0,0,.4);
+  }
+  .handle .arrows {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:1;
+    color:#222; font-size:16px; letter-spacing:-2px; font-weight:700;
+  }
+  .label {
+    position:absolute; padding:3px 10px; font-size:11px; border-radius:20px;
+    background:rgba(0,0,0,.6); color:#fff; backdrop-filter:blur(4px);
+  }
+  .compare.horizontal .label.first { top:10px; left:10px; }
+  .compare.horizontal .label.second { top:10px; right:10px; }
+  .compare.vertical .label.first { top:10px; left:10px; }
+  .compare.vertical .label.second { bottom:10px; left:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Image Compare Slider</h1>
+  <div class="drops">
+    <label class="drop" id="dropA">Image A — click or drop
+      <input type="file" id="fileA" accept="image/*">
+    </label>
+    <label class="drop" id="dropB">Image B — click or drop
+      <input type="file" id="fileB" accept="image/*">
+    </label>
+  </div>
+  <div class="toggle" id="toggle">
+    <button data-mode="horizontal" class="active">↔ Horizontal</button>
+    <button data-mode="vertical">↕ Vertical</button>
+  </div>
+  <span class="hint">Drag the handle (or move your mouse) over the image to compare.</span>
+</header>
+
+<div class="stage">
+  <div class="compare empty horizontal" id="compare">
+    <span id="placeholder">Load two images to compare.<br>You can also paste (Ctrl/Cmd+V) an image.</span>
+  </div>
+</div>
+
+<script>
+  const compare = document.getElementById('compare');
+  let imgA = null, imgB = null;        // data URLs
+  let afterEl = null, afterImg = null, handle = null;
+  let pos = 50;                         // % position of the divider
+  let mode = 'horizontal';             // 'horizontal' | 'vertical'
+
+  function buildIfReady() {
+    if (!imgA || !imgB) return;
+    compare.classList.remove('empty');
+    // horizontal: A=left(before), B=right(after)
+    // vertical:   A=top(before),  B=bottom(after)
+    compare.innerHTML = `
+      <img class="before" src="${imgA}" alt="A">
+      <div class="after"><img src="${imgB}" alt="B"></div>
+      <div class="label first">A</div>
+      <div class="label second">B</div>
+      <div class="handle"><span class="arrows">${mode === 'horizontal' ? '&#8596;' : '&#8597;'}</span></div>
+    `;
+    afterEl = compare.querySelector('.after');
+    afterImg = afterEl.querySelector('img');
+    handle = compare.querySelector('.handle');
+    const beforeImg = compare.querySelector('.before');
+    const sync = () => {
+      if (mode === 'horizontal') afterImg.style.width = beforeImg.clientWidth + 'px';
+      else afterImg.style.height = beforeImg.clientHeight + 'px';
+    };
+    // when bottom image is pinned to the bottom edge we offset it upward
+    if (beforeImg.complete) sync(); else beforeImg.onload = sync;
+    window.addEventListener('resize', sync);
+    setPos(pos);
+  }
+
+  function setPos(pct) {
+    pos = Math.max(0, Math.min(100, pct));
+    if (!afterEl) return;
+    if (mode === 'horizontal') {
+      afterEl.style.width = pos + '%';
+      afterEl.style.height = '100%';
+      handle.style.left = pos + '%';
+    } else {
+      // vertical: B occupies the BOTTOM portion, so pin .after to the bottom
+      afterEl.style.height = (100 - pos) + '%';
+      afterEl.style.width = '100%';
+      afterEl.style.top = 'auto';
+      afterEl.style.bottom = '0';
+      // keep B image aligned to the bottom edge of the frame
+      afterImg.style.objectFit = 'cover';
+      afterImg.style.objectPosition = 'bottom';
+      handle.style.top = pos + '%';
+    }
+  }
+
+  function onMove(clientX, clientY) {
+    const rect = compare.getBoundingClientRect();
+    if (mode === 'horizontal') setPos(((clientX - rect.left) / rect.width) * 100);
+    else setPos(((clientY - rect.top) / rect.height) * 100);
+  }
+
+  let dragging = false;
+  compare.addEventListener('pointerdown', e => { dragging = true; onMove(e.clientX, e.clientY); });
+  window.addEventListener('pointerup', () => dragging = false);
+  compare.addEventListener('pointermove', e => {
+    if (dragging || e.buttons === 0) onMove(e.clientX, e.clientY);
+  });
+
+  // mode toggle
+  document.getElementById('toggle').addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    mode = btn.dataset.mode;
+    compare.classList.toggle('horizontal', mode === 'horizontal');
+    compare.classList.toggle('vertical', mode === 'vertical');
+    [...e.currentTarget.children].forEach(b => b.classList.toggle('active', b === btn));
+    pos = 50;
+    buildIfReady();
+  });
+
+  // file loading
+  function readFile(file, cb) {
+    if (!file || !file.type.startsWith('image/')) return;
+    const r = new FileReader();
+    r.onload = () => cb(r.result);
+    r.readAsDataURL(file);
+  }
+  function wireInput(inputId, dropId, set) {
+    const input = document.getElementById(inputId);
+    const drop = document.getElementById(dropId);
+    input.addEventListener('change', e => readFile(e.target.files[0], v => { set(v); drop.classList.add('loaded'); }));
+    ['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', e => readFile(e.dataTransfer.files[0], v => { set(v); drop.classList.add('loaded'); }));
+  }
+  wireInput('fileA', 'dropA', v => { imgA = v; buildIfReady(); });
+  wireInput('fileB', 'dropB', v => { imgB = v; buildIfReady(); });
+
+  // paste: first -> A, second -> B
+  window.addEventListener('paste', e => {
+    const item = [...e.clipboardData.items].find(i => i.type.startsWith('image/'));
+    if (!item) return;
+    readFile(item.getAsFile(), v => {
+      if (!imgA) { imgA = v; document.getElementById('dropA').classList.add('loaded'); }
+      else { imgB = v; document.getElementById('dropB').classList.add('loaded'); }
+      buildIfReady();
+    });
+  });
+</script>
+</body>
+</html>

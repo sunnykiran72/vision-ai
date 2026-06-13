@@ -5,6 +5,11 @@ ALLOWED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 NORMALIZED_LONG_EDGE_PX = 1248
 MIN_NORMALIZED_EDGE_PX = 512
+# Exact try-on training dimension (portrait 2:3). Validation outputs EXACTLY this so the try-on
+# upscale shape is always the prewarmed 1820x2730 (never a recompile). Frontend already sends 2:3,
+# so the crop is a near no-op in practice; this just makes the invariant bulletproof server-side.
+NORMALIZED_TARGET_WIDTH = 832
+NORMALIZED_TARGET_HEIGHT = 1248
 JPEG_QUALITY = 95
 AZURE_UPLOAD_TIMEOUT_SECONDS = 60
 STORAGE_PREFIX = "inputs"

@@ -13,6 +13,7 @@ from app.models.auth import AuthPayload
 
 PUBLIC_PATH_PREFIXES = (
     "/health",
+    "/ready",
     "/docs",
     "/redoc",
     "/openapi.json",

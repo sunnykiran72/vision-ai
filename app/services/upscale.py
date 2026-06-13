@@ -45,8 +45,6 @@ def run_upscale_request(
         )
         image = Image.open(BytesIO(downloaded_media.content)).convert("RGB")
         input_width, input_height = image.size
-        # Lossless PNG input — never JPEG-compress the image right before upscaling it.
-        image.save(job_paths.input_path, format="PNG")
 
         target_long_edge = _resolve_target_long_edge(payload.metric)
         input_long_edge = max(int(input_width), int(input_height))
@@ -64,7 +62,7 @@ def run_upscale_request(
         action = "upscaled"
         runner_metadata: dict[str, object]
         if input_long_edge >= target_long_edge:
-            image.save(job_paths.output_path, format="PNG")
+            output_image = image
             runner_metadata = {
                 "mode": "skipped",
                 "reason": "input_already_meets_target",
@@ -73,21 +71,20 @@ def run_upscale_request(
                 "derived_short_edge": input_short_edge,
             }
             output_width, output_height = image.size
-            log_path = None
             action = "skipped_existing_resolution"
             elapsed_seconds = 0.0
         else:
-            log_path = job_paths.job_dir / "seedvr2.log"
+            # In-memory upscale: tensor in -> tensor out, no PNG/disk round-trip. Verified
+            # pixel-identical to the file path at both 2730 (compiled) and 4096 (eager).
             run_result = get_upscale_execution_coordinator(resolved_settings).run(
-                lambda: get_upscale_runner(resolved_settings).run(
-                    input_path=job_paths.input_path,
-                    output_path=job_paths.output_path,
-                    log_path=log_path,
+                lambda: get_upscale_runner(resolved_settings).run_tensor(
+                    image=image,
                     target_long_edge=target_long_edge,
                 ),
             )
+            output_image = run_result.image
             runner_metadata = {
-                "mode": "resident_runner",
+                "mode": "resident_runner_tensor",
                 "backend": run_result.runner_backend,
                 "model_variant": run_result.model_variant,
                 "target_long_edge": run_result.target_long_edge,
@@ -119,15 +116,15 @@ def run_upscale_request(
             default_name="output",
             extension=".jpg",
         )
-        # Deliver a JPEG (consistent with wardrobe/try-on, far smaller than a 4k PNG).
-        with Image.open(job_paths.output_path) as final_image:
-            output_buffer = BytesIO()
-            final_image.convert("RGB").save(
-                output_buffer,
-                format="JPEG",
-                quality=95,
-                subsampling=0,
-            )
+        # Deliver a JPEG (consistent with wardrobe/try-on, far smaller than a 4k PNG). Encoded once
+        # from the in-memory result — no intermediate PNG decode.
+        output_buffer = BytesIO()
+        output_image.convert("RGB").save(
+            output_buffer,
+            format="JPEG",
+            quality=95,
+            subsampling=0,
+        )
         output_url = storage_client.upload_bytes(
             output_buffer.getvalue(),
             object_name=object_name,

@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 
+import numpy as np
 from PIL import Image
 
 from app.config import Settings
@@ -31,12 +32,10 @@ _PERSISTENT_COMPILE_CACHE_DIRS: dict[str, str] = {
     "TRITON_CACHE_DIR": "/workspace/.triton_cache",
     "TORCHINDUCTOR_FX_GRAPH_CACHE": "1",
 }
-# torch.compiler "mega-cache": a single portable blob of ALL compile artifacts (inductor
-# codegen + triton + autotune). The automatic inductor FX-graph cache MISSES across restarts
-# for SeedVR2's custom fp8 DiT/VAE (its key includes per-process state), so every restart
-# recompiles (~340s). We snapshot the blob to the shared volume after prewarm and reload it on
-# startup, turning that ~340s recompile into a fast load. Override path with UPSCALE_MEGACACHE.
-_MEGACACHE_PATH = "/workspace/.seedvr2_compile_megacache.bin"
+# NOTE: torch.compiler mega-cache (save/load_cache_artifacts) was tried and REMOVED — it loaded the
+# blob but the compile still re-ran (294s with vs 281s without): the inductor cache key is unstable
+# across processes for SeedVR2's custom fp8 DiT/VAE. The boot recompile is hidden from users via
+# readiness gating (/ready) instead. AOTInductor is the only real "compile once, load forever" path.
 
 
 @dataclass(frozen=True)
@@ -53,9 +52,24 @@ class SeedVR2RunResult:
 
 
 @dataclass(frozen=True)
+class SeedVR2TensorResult:
+    image: Image.Image
+    output_width: int
+    output_height: int
+    wall_seconds: float
+    target_long_edge: int
+    derived_short_edge: int
+    model_variant: str
+    runner_backend: str
+
+
+@dataclass(frozen=True)
 class SeedVR2RuntimeStatus:
     loaded: bool
     backend: str | None
+    # True once the startup prewarm has compiled every UPSCALE_WARMUP_EDGES shape (or immediately
+    # if UPSCALE_WARMUP=0). Readiness gating uses this so a pod only serves once upscale is warm.
+    prewarmed: bool = False
 
 
 class SeedVR2Client:
@@ -67,6 +81,7 @@ class SeedVR2Client:
         self._backend: str | None = None
         self._init_lock = threading.Lock()
         self._run_lock = threading.Lock()
+        self._prewarmed = False
 
     def run(
         self,
@@ -148,6 +163,94 @@ class SeedVR2Client:
             runner_backend=self._backend,
         )
 
+    def run_tensor(
+        self,
+        *,
+        image: Image.Image,
+        target_long_edge: int,
+    ) -> SeedVR2TensorResult:
+        """In-memory upscale: PIL image in -> upscaled PIL image out, with NO disk round-trip.
+
+        Mirrors SeedVR2's own image path (extract_frames_from_image -> _single_gpu_direct_processing
+        -> save_frames_to_image) but hands the tensor directly, skipping the PNG encode + disk write
+        + disk read + PNG decode. Reuses self._runner_cache, so the resident, prewarmed+compiled
+        DiT/VAE is reused (no recompile). The PIL<->tensor conversions replicate extract/save
+        EXACTLY, so the output is byte-identical to the file path (verified by pixel-diff).
+        """
+        import torch
+
+        cli_path = Path(self._settings.upscale_cli_path)
+        model_dir = Path(self._settings.upscale_model_path)
+        model_variant = self._settings.upscale_model_variant.strip()
+        if not cli_path.exists():
+            raise FileNotFoundError(f"SeedVR2 CLI not found: {cli_path}")
+        if not model_dir.exists():
+            raise FileNotFoundError(f"SeedVR2 model directory not found: {model_dir}")
+        if not model_variant:
+            raise ValueError("UPSCALE_MODEL_VARIANT is not configured.")
+
+        rgb = image.convert("RGB")
+        input_width, input_height = rgb.size
+        input_long_edge = max(int(input_width), int(input_height))
+        input_short_edge = min(int(input_width), int(input_height))
+        if input_long_edge <= 0 or input_short_edge <= 0:
+            raise ValueError("Invalid input image dimensions.")
+        scale = float(target_long_edge) / float(input_long_edge)
+        derived_short_edge = max(256, int(round(float(input_short_edge) * scale)))
+
+        self._ensure_loaded(cli_path)
+        assert self._cli_module is not None
+        assert self._device_list is not None
+        assert self._backend is not None
+
+        # input_path/output_path only become argv strings for resolution/model config; the tensor
+        # path never reads/writes them.
+        request_args = self._build_args(
+            cli_path=cli_path,
+            model_dir=model_dir,
+            model_variant=model_variant,
+            input_path=Path("inmemory_input.png"),
+            output_path=Path("inmemory_output.png"),
+            derived_short_edge=derived_short_edge,
+            target_long_edge=target_long_edge,
+        )
+
+        # PIL -> frames tensor [1, H, W, C], float16, RGB, [0,1] (mirrors extract_frames_from_image;
+        # PIL is already RGB so its BGR->RGB step is a no-op for us).
+        frame = np.asarray(rgb, dtype=np.float32) / 255.0
+        frames_tensor = torch.from_numpy(frame[None, ...]).to(torch.float16)
+
+        capture = io.StringIO()
+        started_at = time.perf_counter()
+        with self._run_lock:
+            with redirect_stdout(capture), redirect_stderr(capture):
+                result = self._cli_module._single_gpu_direct_processing(
+                    frames_tensor,
+                    request_args,
+                    self._device_list[0],
+                    self._runner_cache,
+                )
+        elapsed = time.perf_counter() - started_at
+
+        if result is None or int(result.shape[0]) <= 0:
+            raise RuntimeError("SeedVR2 in-memory upscale produced no frames.")
+
+        # frames tensor [T, H, W, C] float [0,1] -> PIL RGB (mirrors save_frames_to_image's
+        # (x*255).astype(uint8); stays RGB since we build the PIL directly, no cv2 BGR round-trip).
+        out_np = (result[0].detach().to(torch.float32).cpu().numpy() * 255.0).astype(np.uint8)
+        out_image = Image.fromarray(out_np, "RGB")
+
+        return SeedVR2TensorResult(
+            image=out_image,
+            output_width=int(out_image.width),
+            output_height=int(out_image.height),
+            wall_seconds=float(round(elapsed, 3)),
+            target_long_edge=int(target_long_edge),
+            derived_short_edge=int(derived_short_edge),
+            model_variant=model_variant,
+            runner_backend=self._backend,
+        )
+
     def warmup(self) -> None:
         cli_path = Path(self._settings.upscale_cli_path)
         model_dir = Path(self._settings.upscale_model_path)
@@ -170,6 +273,54 @@ class SeedVR2Client:
                 name="seedvr2-prewarm",
                 daemon=True,
             ).start()
+        else:
+            # Nothing to prewarm → ready immediately (first request will pay any compile).
+            self._prewarmed = True
+
+    def _wait_for_vram_headroom(self, *, min_free_gb: float, timeout_s: float) -> None:
+        """Block until it's safe to allocate the ~24 GB SeedVR2 compile workspace without OOM while
+        Qwen may still be loading concurrently. Proceeds as soon as free VRAM >= min_free_gb, OR once
+        free VRAM has stopped shrinking for ~15s (Qwen finished growing -> whatever is left is what we
+        get), OR after timeout_s. No-op if CUDA is unavailable. Best-effort: never raises."""
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return
+        except Exception:
+            return
+        need = float(min_free_gb) * 1e9
+        deadline = time.monotonic() + float(timeout_s)
+        poll = 2.0
+        stable_for = 0.0
+        last_free: float | None = None
+        while time.monotonic() < deadline:
+            try:
+                free, _total = torch.cuda.mem_get_info()
+            except Exception:
+                return
+            free_f = float(free)
+            if free_f >= need:
+                return
+            if last_free is not None and abs(free_f - last_free) < 1e9:  # changed < 1 GB
+                stable_for += poll
+                if stable_for >= 15.0:
+                    logger.info(
+                        "SeedVR2 prewarm: VRAM stable at %.0fGB free (< %.0fGB target); peers done "
+                        "loading, proceeding with compile.",
+                        free_f / 1e9,
+                        min_free_gb,
+                    )
+                    return
+            else:
+                stable_for = 0.0
+            last_free = free_f
+            time.sleep(poll)
+        logger.warning(
+            "SeedVR2 prewarm: VRAM headroom %.0fGB not reached in %.0fs; compiling anyway.",
+            min_free_gb,
+            timeout_s,
+        )
 
     def _prewarm(self) -> None:
         """Run a synthetic upscale at each prod target resolution so torch.compile is paid at
@@ -182,6 +333,14 @@ class SeedVR2Client:
             edges = tuple(int(x) for x in raw.split(",") if x.strip()) or _DEFAULT_WARMUP_EDGES
         except ValueError:
             edges = _DEFAULT_WARMUP_EDGES
+        # Parallel-startup safety: this prewarm thread may be kicked off concurrently with the Qwen
+        # load (STARTUP_PARALLEL_WARMUP). Wait for GPU memory headroom before the ~24 GB compile so
+        # the two big allocations don't collide and OOM. Returns as soon as there is room, or once
+        # free VRAM stops shrinking (Qwen done loading), or after a timeout. No-op without CUDA.
+        self._wait_for_vram_headroom(
+            min_free_gb=float(os.environ.get("UPSCALE_PREWARM_MIN_FREE_GB", "26")),
+            timeout_s=float(os.environ.get("UPSCALE_PREWARM_WAIT_TIMEOUT_S", "300")),
+        )
         # 2:3 portrait synthetic input — the dominant wardrobe/try-on output aspect.
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "warm_in.png"
@@ -202,9 +361,10 @@ class SeedVR2Client:
                     )
                 except Exception as exc:  # noqa: BLE001 - prewarm must never block startup
                     logger.warning("SeedVR2 prewarm at long_edge=%d failed: %s", edge, exc)
-        # Persist the freshly-compiled artifacts so the next restart reloads instead of
-        # recompiling (~340s -> fast load).
-        self._save_compile_cache()
+        # Mark warm so the /ready probe lets the load balancer route traffic to this pod. Set
+        # unconditionally after the loop: even if a shape failed, we won't block readiness forever
+        # (a failed shape just recompiles on its first real request).
+        self._prewarmed = True
 
     def status(self) -> SeedVR2RuntimeStatus:
         return SeedVR2RuntimeStatus(
@@ -214,6 +374,7 @@ class SeedVR2Client:
                 and self._backend is not None
             ),
             backend=self._backend,
+            prewarmed=self._prewarmed,
         )
 
     def _ensure_loaded(self, cli_path: Path) -> None:
@@ -273,52 +434,10 @@ class SeedVR2Client:
 
             if not hasattr(OptimizedModule, "__bool__"):
                 OptimizedModule.__bool__ = lambda self: True  # type: ignore[attr-defined]
-            _torch.backends.cudnn.benchmark = True
+            _torch.backends.cudnn.benchmark = os.environ.get("UPSCALE_CUDNN_BENCHMARK", "1") != "0"
         except Exception:
             pass
-        # Reload persisted compile artifacts BEFORE the first torch.compile (prewarm/first
-        # request), so the per-shape codegen is a fast load instead of a ~340s recompile.
-        self._load_compile_cache()
         return module
-
-    def _load_compile_cache(self) -> None:
-        """Best-effort reload of the torch.compiler mega-cache snapshot. Must run before the
-        first compile. Failure is logged and never blocks startup."""
-        if os.environ.get("UPSCALE_COMPILE", "1") == "0":
-            return
-        try:
-            import torch
-
-            path = Path(os.environ.get("UPSCALE_MEGACACHE", _MEGACACHE_PATH))
-            if not path.exists():
-                logger.info("SeedVR2 compile mega-cache absent (%s); will compile fresh", path)
-                return
-            data = path.read_bytes()
-            torch.compiler.load_cache_artifacts(data)
-            logger.info("SeedVR2 compile mega-cache loaded (%.1f MB)", len(data) / 1e6)
-        except Exception as exc:  # noqa: BLE001 - cache reload must never block startup
-            logger.warning("SeedVR2 compile mega-cache load failed: %s", exc)
-
-    def _save_compile_cache(self) -> None:
-        """Best-effort snapshot of all torch.compile artifacts to the shared volume so the next
-        restart reloads them. Called after prewarm has compiled every target shape."""
-        if os.environ.get("UPSCALE_COMPILE", "1") == "0":
-            return
-        try:
-            import torch
-
-            artifacts = torch.compiler.save_cache_artifacts()
-            if not artifacts:
-                logger.info("SeedVR2 compile mega-cache: nothing to save")
-                return
-            data, _info = artifacts
-            path = Path(os.environ.get("UPSCALE_MEGACACHE", _MEGACACHE_PATH))
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(path)
-            logger.info("SeedVR2 compile mega-cache saved (%.1f MB)", len(data) / 1e6)
-        except Exception as exc:  # noqa: BLE001 - cache save must never block startup
-            logger.warning("SeedVR2 compile mega-cache save failed: %s", exc)
 
     def _build_args(
         self,

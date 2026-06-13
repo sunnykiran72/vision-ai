@@ -1,0 +1,707 @@
+[
+  {
+    "type": "top",
+    "index": 1,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/top_1.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/top_1_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/top_1_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 21.785,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1_000019500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "top",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "top",
+    "index": 2,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/top_2.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/top_2_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/top_2_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.197,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1_000019500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "top",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "top",
+    "index": 3,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/top_3.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/top_3_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/top_3_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.285,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1_000019500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "top",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "top",
+    "index": 4,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/top_4.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/top_4_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/top_4_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.346,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1_000019500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "top",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "top",
+    "index": 5,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/top_5.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/top_5_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/top_5_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.331,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1/qwen_garment_extract_top126_glamtopext_rank16_b1_continue_12k_to_27k_lr8e5_v1_000019500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "top",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "bottom",
+    "index": 1,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/bottom_1.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/bottom_1_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/bottom_1_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.699,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1_000025500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "bottom",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "bottom",
+    "index": 2,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/bottom_2.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/bottom_2_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/bottom_2_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.303,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1_000025500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "bottom",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "bottom",
+    "index": 3,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/bottom_3.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/bottom_3_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/bottom_3_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.28,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1_000025500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "bottom",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "bottom",
+    "index": 4,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/bottom_4.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/bottom_4_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/bottom_4_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.293,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1_000025500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "bottom",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "bottom",
+    "index": 5,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/bottom_5.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/bottom_5_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/bottom_5_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.304,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1/qwen_garment_extract_bottom119_glambtmext_rank16_b1_continue_12k_to_22k_lr815e5_v1_000025500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "bottom",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "dress",
+    "index": 1,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/dress_1.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/dress_1_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/dress_1_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.511,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1_000015500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "dress",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "dress",
+    "index": 2,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/dress_2.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/dress_2_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/dress_2_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.311,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1_000015500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "dress",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "dress",
+    "index": 3,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/dress_3.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/dress_3_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/dress_3_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.291,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1_000015500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "dress",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "dress",
+    "index": 4,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/dress_4.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/dress_4_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/dress_4_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.295,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1_000015500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "dress",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  },
+  {
+    "type": "dress",
+    "index": 5,
+    "source": "/mnt/qwen-garment-extract/eval_samples/extraction/dress_5.jpg",
+    "input": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/inputs_preprocessed/dress_5_input.jpg",
+    "output": "/mnt/vision-ai/review_outputs/wardrobe_current_eval_samples/outputs/dress_5_output.jpg",
+    "source_size": [
+      832,
+      1248
+    ],
+    "preprocessed_size": [
+      683,
+      1024
+    ],
+    "output_size": [
+      832,
+      1248
+    ],
+    "wall_seconds": 20.307,
+    "metadata": {
+      "backend": "ai_toolkit_exact_shared_plus",
+      "architecture": "qwen_image_edit_plus",
+      "model_source": "/mnt/models/qwen-image-edit-2511",
+      "ai_toolkit_root": "/mnt/tryon-data/ai-toolkit",
+      "checkpoint_path": "/mnt/qwen-garment-extract/outputs/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1/qwen_garment_extract_dress125_glamdressext_rank16_b1_continue_15k_to_30k_lr125e5_v1_000015500.safetensors",
+      "lora_namespace": "wardrobe",
+      "lora_key": "dress",
+      "lora_rank": 16,
+      "lora_alpha": 16,
+      "network_multiplier": 1.0,
+      "guidance_scale": 1.0,
+      "guidance_rescale": 0.0,
+      "do_cfg_norm": false,
+      "sampler": "flowmatch",
+      "seed": 43,
+      "steps": 15,
+      "control_order": {
+        "ctrl_img_1": "garment_input"
+      },
+      "output_size": {
+        "width": 832,
+        "height": 1248
+      },
+      "dtype": "bfloat16",
+      "device": "cuda:0"
+    }
+  }
+]

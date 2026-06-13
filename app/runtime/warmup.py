@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from app.config import (
@@ -31,6 +32,17 @@ def warmup_resident_runtimes(settings: Settings | None = None) -> list[WarmupRes
 
     enabled_runtimes = get_enabled_resident_runtimes(resolved_settings)
 
+    # STARTUP_PARALLEL_WARMUP: kick the upscale (SeedVR2) prewarm FIRST. warmup_upscale_runtime only
+    # starts a non-blocking daemon thread whose compile self-staggers on free VRAM (see
+    # SeedVR2Client._wait_for_vram_headroom), so it overlaps the synchronous Qwen + MiniCPM warmup
+    # below -> shorter cold start with no OOM. Default (flag off) keeps the proven sequential order
+    # (upscale last). Flip STARTUP_PARALLEL_WARMUP=0 to roll back instantly.
+    parallel = os.environ.get("STARTUP_PARALLEL_WARMUP", "0") != "0"
+
+    if parallel and "upscale" in enabled_runtimes:
+        warmup_upscale_runtime(resolved_settings)
+        results.append(WarmupResult(runtime_name="upscale", warmed=True))
+
     if "wardrobe" in enabled_runtimes:
         warmup_wardrobe_runtime(resolved_settings)
         results.append(WarmupResult(runtime_name="wardrobe", warmed=True))
@@ -39,7 +51,7 @@ def warmup_resident_runtimes(settings: Settings | None = None) -> list[WarmupRes
         warmup_tryon_runtime(resolved_settings)
         results.append(WarmupResult(runtime_name="tryon", warmed=True))
 
-    if "upscale" in enabled_runtimes:
+    if not parallel and "upscale" in enabled_runtimes:
         warmup_upscale_runtime(resolved_settings)
         results.append(WarmupResult(runtime_name="upscale", warmed=True))
 

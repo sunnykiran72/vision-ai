@@ -9,12 +9,10 @@ GARMENT_REFERENCE_MAX_EDGE_PX = 768
 JPEG_QUALITY = 95
 DOWNLOAD_MAX_WORKERS = 8
 UPSCALE_AFTER_QWEN = True
-# Deliver at 2730 directly (no downscale). With the SeedVR2 offload="0" fix (DiT+VAE resident on
-# GPU, no fp16->bf16 CPU bounce) + static compile + 2730 prewarm, a 2730 upscale is ~2.4s. See
-# docs/seedvr2-2730-optimization.md. The pod .env (TRYON_UPSCALE_TARGET_LONG_EDGE=2730) is the
-# source of truth and overrides these defaults.
-UPSCALE_TARGET_LONG_EDGE_PX = 2730
-FINAL_OUTPUT_LONG_EDGE_PX = 2730
+# Upscale DIRECTLY to the final size (no supersample-then-downscale). Generating 2730 then
+# downscaling to 2048 wasted ~2.4s on pixels we throw away; direct 2048 is ~2.6s (SeedVR2 eager).
+UPSCALE_TARGET_LONG_EDGE_PX = 2048
+FINAL_OUTPUT_LONG_EDGE_PX = 2048
 
 STORAGE_PREFIX = "wardrobe_output/tryon"
 

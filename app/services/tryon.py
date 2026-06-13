@@ -5,7 +5,6 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
-from pathlib import Path
 from time import perf_counter
 
 import httpx
@@ -26,9 +25,7 @@ from app.runtime.tryon_runtime import get_tryon_runner
 from app.runtime.upscale_runtime import get_upscale_execution_coordinator, get_upscale_runner
 from app.services.tryon_routing import TryonRoutingDecision, resolve_tryon_route
 from app.utils.media_utils import (
-    build_job_media_paths,
     build_storage_object_name,
-    cleanup_directory,
     download_media_from_url,
 )
 from app.utils.tryon_collage import (
@@ -59,11 +56,17 @@ def run_tryon_request(
     *,
     settings: Settings | None = None,
     user_id: str,
+    upscale_override: bool | None = None,
 ) -> TryonResponse:
     resolved_settings = settings or get_settings()
+    # Per-request `?upscale=` query param overrides the server default; omitted -> server default.
+    do_upscale = (
+        bool(resolved_settings.tryon_upscale_after_qwen)
+        if upscale_override is None
+        else bool(upscale_override)
+    )
     total_started = perf_counter()
     timings: dict[str, float] = {}
-    upscale_job_paths = None
     try:
         job_id = uuid.uuid4().hex
         resolved_seed = (
@@ -176,30 +179,23 @@ def run_tryon_request(
         timings["output_resize_seconds"] = _elapsed(resize_started)
         qwen_output_size = {"width": int(output_image.width), "height": int(output_image.height)}
         upscale_metadata: dict[str, object] = {
-            "enabled": bool(resolved_settings.tryon_upscale_after_qwen),
+            "enabled": do_upscale,
             "mode": "disabled",
+            "override": upscale_override,
+            "server_default": bool(resolved_settings.tryon_upscale_after_qwen),
         }
-        if resolved_settings.tryon_upscale_after_qwen:
+        if do_upscale:
             upscale_started = perf_counter()
-            upscale_job_paths = build_job_media_paths(
-                Path(resolved_settings.upscale_work_root) / "tryon",
-                input_extension=".png",
-                output_extension=".png",
-            )
-            # Feed SeedVR2 a lossless PNG of the Qwen output (no intermediate JPEG recompression);
-            # only the final delivered image is JPEG-encoded.
-            output_image.save(upscale_job_paths.input_path, format="PNG")
-            log_path = upscale_job_paths.job_dir / "seedvr2.log"
+            # In-memory tensor handoff: Qwen output PIL -> SeedVR2 -> PIL, with no intermediate
+            # PNG save/reload on disk (saves the ~0.35s round-trip). Same in-memory path that
+            # /v1/upscale uses; verified pixel-identical to the file route at 2496 (compiled).
             upscale_result = get_upscale_execution_coordinator(resolved_settings).run(
-                lambda: get_upscale_runner(resolved_settings).run(
-                    input_path=upscale_job_paths.input_path,
-                    output_path=upscale_job_paths.output_path,
-                    log_path=log_path,
+                lambda: get_upscale_runner(resolved_settings).run_tensor(
+                    image=output_image,
                     target_long_edge=int(resolved_settings.tryon_upscale_target_long_edge),
                 ),
             )
-            with Image.open(upscale_result.output_path) as upscaled_image:
-                output_image = upscaled_image.convert("RGB")
+            output_image = upscale_result.image.convert("RGB")
             before_downscale_size = {
                 "width": int(output_image.width),
                 "height": int(output_image.height),
@@ -212,7 +208,9 @@ def run_tryon_request(
             timings["seedvr2_upscale_wall_seconds"] = _elapsed(upscale_started)
             upscale_metadata = {
                 "enabled": True,
-                "mode": "seedvr2_inline",
+                "mode": "seedvr2_inline_tensor",
+                "override": upscale_override,
+                "server_default": bool(resolved_settings.tryon_upscale_after_qwen),
                 "model_variant": upscale_result.model_variant,
                 "runner_backend": upscale_result.runner_backend,
                 "target_long_edge": int(upscale_result.target_long_edge),
@@ -312,7 +310,11 @@ def run_tryon_request(
                         "steps": resolved_steps,
                         "guidance_scale": resolved_guidance_scale,
                         "network_multiplier": float(resolved_settings.tryon_lora_scale),
-                        "upscale_after_qwen": bool(resolved_settings.tryon_upscale_after_qwen),
+                        "upscale_after_qwen": do_upscale,
+                        "upscale_override": upscale_override,
+                        "upscale_server_default": bool(
+                            resolved_settings.tryon_upscale_after_qwen,
+                        ),
                         "upscale_target_long_edge": int(
                             resolved_settings.tryon_upscale_target_long_edge,
                         ),
@@ -449,9 +451,6 @@ def run_tryon_request(
                 "error": str(exc),
             },
         )
-    finally:
-        if upscale_job_paths is not None:
-            cleanup_directory(upscale_job_paths.job_dir)
 
 
 def _build_specialist_prompt(

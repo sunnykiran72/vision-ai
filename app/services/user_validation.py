@@ -176,9 +176,39 @@ def _normalize_user_image(image: Image.Image) -> Image.Image:
             "Image aspect ratio is too extreme. "
             "Please upload a clearer portrait or full-body photo.",
         )
-    if (new_width, new_height) == (width, height):
-        return image.convert("RGB")
-    return image.convert("RGB").resize((new_width, new_height), Image.Resampling.LANCZOS)
+    # Enforce the EXACT try-on training dimension (832x1248, portrait 2:3): center-crop to the 2:3
+    # aspect, then resize. Inputs already arrive as 2:3 from the frontend, so for real traffic this
+    # is a no-op (a 2:3 image normalizes to exactly 832x1248 either way). It guarantees every try-on
+    # input is exactly 832x1248 -> the inline SeedVR2 upscale output is always the prewarmed
+    # 1820x2730 shape (never a cold recompile). Validation-only; the try-on path is untouched.
+    return _center_crop_to_aspect_and_resize(
+        image.convert("RGB"),
+        constants.NORMALIZED_TARGET_WIDTH,
+        constants.NORMALIZED_TARGET_HEIGHT,
+    )
+
+
+def _center_crop_to_aspect_and_resize(
+    image: Image.Image, target_width: int, target_height: int
+) -> Image.Image:
+    """Center-crop ``image`` to the target aspect ratio, then resize to (target_width,
+    target_height). A true-aspect input (within rounding tolerance) skips the crop entirely."""
+    width, height = image.size
+    target_ratio = target_width / target_height
+    current_ratio = width / height
+    if abs(current_ratio - target_ratio) > 1e-3:
+        if current_ratio > target_ratio:  # too wide -> trim width
+            crop_width = max(1, round(height * target_ratio))
+            crop_height = height
+        else:  # too tall -> trim height
+            crop_width = width
+            crop_height = max(1, round(width / target_ratio))
+        left = (width - crop_width) // 2
+        top = (height - crop_height) // 2
+        image = image.crop((left, top, left + crop_width, top + crop_height))
+    if image.size != (target_width, target_height):
+        image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    return image
 
 
 def _compute_blur_metadata(image: Image.Image) -> dict[str, Any]:

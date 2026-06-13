@@ -20,15 +20,22 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from uuid import uuid4
+
 from PIL import Image
 
 from app.clients.seedvr2 import get_seedvr2_client
+from app.clients.storage import AzureStorageClient
 from app.config import Settings, get_settings
 from app.constants.upscale import (
     KNOWN_SEEDVR2_VARIANT_FILENAMES,
     KNOWN_SEEDVR2_VARIANTS,
 )
-from app.utils.media_utils import build_job_media_paths, cleanup_directory
+from app.utils.media_utils import (
+    build_job_media_paths,
+    build_storage_object_name,
+    cleanup_directory,
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +86,27 @@ def _encode_png(image: Image.Image) -> str:
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _publish_image(image: Image.Image, settings: Settings, name: str) -> str:
+    """Upload the image as a JPEG to Azure and return its URL. Keeps the HTTP response tiny (a URL,
+    not a multi-MB base64 PNG) so it transfers fast through the RunPod proxy; the browser then loads
+    the image straight from Azure. Falls back to a base64 data URI if Azure isn't configured."""
+    storage = AzureStorageClient(settings)
+    if not storage.is_configured:
+        return _encode_png(image)
+    buffer = BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG", quality=92, subsampling=0)
+    object_name = build_storage_object_name(
+        output_filename=None,
+        prefix=f"{settings.upscale_storage_prefix}/lab/{uuid4().hex}",
+        default_name=name,
+    )
+    return storage.upload_bytes(
+        buffer.getvalue(),
+        object_name=object_name,
+        content_type="image/jpeg",
+    )
 
 
 def run_lab_upscale(
@@ -136,8 +164,8 @@ def run_lab_upscale(
         with Image.open(job.output_path) as raw_output:
             output_image = raw_output.convert("RGB")
             output_width, output_height = output_image.size
-            output_data_uri = _encode_png(output_image)
-        preprocessed_data_uri = _encode_png(preprocessed)
+            output_data_uri = _publish_image(output_image, resolved, "output")
+        preprocessed_data_uri = _publish_image(preprocessed, resolved, "preprocessed")
 
         return {
             "ok": True,

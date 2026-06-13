@@ -371,6 +371,7 @@
         <div class="tabs">
           <button id="wardrobeTab" class="tab active" type="button">Wardrobe</button>
           <button id="upscaleTab" class="tab" type="button">Upscale</button>
+          <button id="tryonTab" class="tab" type="button">Try-On</button>
         </div>
 
         <div id="wardrobePanel" class="stack">
@@ -407,6 +408,66 @@
           </div>
           <button id="useWardrobeOutputBtn" class="secondary" type="button">Use Wardrobe Output URL</button>
           <button id="upscaleBtn" type="button">Send Upscale Request</button>
+        </div>
+
+        <div id="tryonPanel" class="stack hidden">
+          <div class="row">
+            <label>
+              User image URL
+              <input id="tryonUserUrl" placeholder="https://.../user.jpg (validated person image)">
+            </label>
+            <label>
+              Garment image URL
+              <input id="tryonGarmentUrl" placeholder="https://.../garment.jpg (wardrobe output)">
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              User image FILE (upload — overrides URL)
+              <input id="tryonUserFile" type="file" accept="image/*">
+            </label>
+            <label>
+              Garment image FILE (upload — overrides URL)
+              <input id="tryonGarmentFile" type="file" accept="image/*">
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              Resize long edge (blank = native; e.g. 1248, 1664, 2496)
+              <input id="tryonLongEdge" placeholder="native" inputmode="numeric">
+            </label>
+            <label>
+              Upscaler
+              <select id="tryonUpscale">
+                <option value="">server default</option>
+                <option value="false">false — no upscale (output = input dims)</option>
+                <option value="true">true — SeedVR2 2496</option>
+              </select>
+            </label>
+          </div>
+          <div id="tryonDims" style="font-size:12px;color:#9ca3af;line-height:1.5"></div>
+          <div class="row">
+            <label>
+              Garment type
+              <select id="tryonType">
+                <option value="top">top</option>
+                <option value="bottom">bottom</option>
+                <option value="dress">dress</option>
+                <option value="outer">outer</option>
+              </select>
+            </label>
+            <label>
+              Prompt
+              <input id="tryonPrompt" placeholder="e.g. a top (defaults to type)">
+            </label>
+          </div>
+          <div class="row">
+            <label>Seed <input id="tryonSeed" value="7777"></label>
+            <label>Steps <input id="tryonSteps" value="12"></label>
+            <label>Guidance <input id="tryonGuidance" value="1"></label>
+          </div>
+          <button id="useWardrobeForTryonBtn" class="secondary" type="button">Use Wardrobe Output as Garment</button>
+          <button id="tryonBtn" type="button">Send Try-On Request</button>
         </div>
       </section>
     </div>
@@ -505,6 +566,22 @@
       upscaleMetric: document.getElementById("upscaleMetric"),
       upscaleBtn: document.getElementById("upscaleBtn"),
       useWardrobeOutputBtn: document.getElementById("useWardrobeOutputBtn"),
+      tryonTab: document.getElementById("tryonTab"),
+      tryonPanel: document.getElementById("tryonPanel"),
+      tryonUserUrl: document.getElementById("tryonUserUrl"),
+      tryonGarmentUrl: document.getElementById("tryonGarmentUrl"),
+      tryonUserFile: document.getElementById("tryonUserFile"),
+      tryonGarmentFile: document.getElementById("tryonGarmentFile"),
+      tryonLongEdge: document.getElementById("tryonLongEdge"),
+      tryonUpscale: document.getElementById("tryonUpscale"),
+      tryonDims: document.getElementById("tryonDims"),
+      tryonType: document.getElementById("tryonType"),
+      tryonPrompt: document.getElementById("tryonPrompt"),
+      tryonSeed: document.getElementById("tryonSeed"),
+      tryonSteps: document.getElementById("tryonSteps"),
+      tryonGuidance: document.getElementById("tryonGuidance"),
+      tryonBtn: document.getElementById("tryonBtn"),
+      useWardrobeForTryonBtn: document.getElementById("useWardrobeForTryonBtn"),
       status: document.getElementById("status"),
       httpMetric: document.getElementById("httpMetric"),
       latencyMetric: document.getElementById("latencyMetric"),
@@ -852,12 +929,124 @@
       }
     }
 
+    function renderBeforeImages(pairs) {
+      els.inputFrame.innerHTML = "";
+      pairs.forEach(([label, u]) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:inline-block;width:48%;text-align:center;vertical-align:top;margin:1%";
+        const img = document.createElement("img");
+        img.src = u;
+        img.alt = label;
+        img.style.maxWidth = "100%";
+        img.style.borderRadius = "8px";
+        img.onerror = () => { wrap.querySelector(".cap").textContent = label + " (preview failed)"; };
+        const cap = document.createElement("div");
+        cap.className = "cap";
+        cap.textContent = label;
+        cap.style.cssText = "font-size:11px;color:#9ca3af;margin-top:4px";
+        wrap.appendChild(img);
+        wrap.appendChild(cap);
+        els.inputFrame.appendChild(wrap);
+      });
+    }
+
+    function getUrlDims(url) {
+      return new Promise((resolve) => {
+        const i = new Image();
+        i.onload = () => resolve([i.naturalWidth, i.naturalHeight]);
+        i.onerror = () => resolve(null);
+        i.src = url;
+      });
+    }
+
+    async function uploadImage(file, longEdge, name) {
+      const qs = new URLSearchParams({ name });
+      if (longEdge) qs.set("long_edge", String(longEdge));
+      const r = await fetch(`/upload?${qs.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `upload failed (${r.status})`);
+      return j; // {url,width,height,orig_width,orig_height,bytes}
+    }
+
+    async function sendTryon() {
+      const longEdge = Number(els.tryonLongEdge.value) || 0;
+      let userUrl = els.tryonUserUrl.value.trim();
+      let garmentUrl = els.tryonGarmentUrl.value.trim();
+      let userDims = null, garmentDims = null;
+      resetResult();
+      setBusy(true);
+      try {
+        if (els.tryonUserFile.files[0] || els.tryonGarmentFile.files[0]) {
+          setStatus("warn", "Uploading input image(s) to Azure…");
+        }
+        if (els.tryonUserFile.files[0]) {
+          const u = await uploadImage(els.tryonUserFile.files[0], longEdge, "user");
+          userUrl = u.url; els.tryonUserUrl.value = u.url; userDims = [u.width, u.height];
+        }
+        if (els.tryonGarmentFile.files[0]) {
+          const g = await uploadImage(els.tryonGarmentFile.files[0], longEdge, "garment");
+          garmentUrl = g.url; els.tryonGarmentUrl.value = g.url; garmentDims = [g.width, g.height];
+        }
+        if (!userUrl || !garmentUrl) {
+          setStatus("bad", "User + garment image required (upload a file or paste a URL)");
+          setBusy(false); return;
+        }
+        if (!userDims) userDims = await getUrlDims(userUrl);
+        if (!garmentDims) garmentDims = await getUrlDims(garmentUrl);
+        renderBeforeImages([["user (before)", userUrl], ["garment", garmentUrl]]);
+        els.inputInfo.textContent = "user + garment (before)";
+
+        const upVal = els.tryonUpscale.value; // "", "true", "false"
+        const path = "/v1/tryon" + (upVal !== "" ? `?upscale=${upVal}` : "");
+        setStatus("warn", `Try-on running${upVal !== "" ? ` (upscale=${upVal})` : ""}…`);
+        const headers = await authHeaders();
+        const { response, body, elapsed } = await requestJson(path, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_image: userUrl,
+            products: [{
+              image_url: garmentUrl,
+              type: els.tryonType.value,
+              prompt: els.tryonPrompt.value.trim() || els.tryonType.value,
+            }],
+            seed: Number(els.tryonSeed.value) || 7777,
+            steps: Number(els.tryonSteps.value) || 12,
+            guidance_scale: Number(els.tryonGuidance.value) || 1,
+          }),
+        });
+        applyMetrics(response, body, elapsed);
+        renderJson(body);
+        renderOutput(body?.data?.url || "");
+
+        const md = body?.data?.metadata || {};
+        const out = md.output || {}, tm = md.timings || {}, up = md.upscale || {};
+        const fmt = (v) => (v == null ? "–" : `${v}s`);
+        els.tryonDims.innerHTML =
+          `input: user <b>${userDims ? userDims.join("×") : "?"}</b> · garment <b>${garmentDims ? garmentDims.join("×") : "?"}</b>` +
+          ` → output <b>${out.width || "?"}×${out.height || "?"}</b>` +
+          ` &nbsp;|&nbsp; upscale=<b>${up.enabled}</b> (${up.mode || "?"})` +
+          ` &nbsp;|&nbsp; qwen ${fmt(tm.qwen_generation_seconds)} · seedvr2 ${fmt(tm.seedvr2_upscale_seconds)} · total <b>${fmt(tm.total_wall_seconds)}</b>`;
+        setStatus(response.ok ? "ok" : "bad", response.ok ? "Try-on complete (after image →)" : "Try-on failed");
+      } catch (error) {
+        renderJson({ error: error.message });
+        setStatus("bad", "Request failed: " + error.message);
+      } finally {
+        setBusy(false);
+      }
+    }
+
     function showTab(name) {
-      const wardrobe = name === "wardrobe";
-      els.wardrobeTab.classList.toggle("active", wardrobe);
-      els.upscaleTab.classList.toggle("active", !wardrobe);
-      els.wardrobePanel.classList.toggle("hidden", !wardrobe);
-      els.upscalePanel.classList.toggle("hidden", wardrobe);
+      els.wardrobeTab.classList.toggle("active", name === "wardrobe");
+      els.upscaleTab.classList.toggle("active", name === "upscale");
+      els.tryonTab.classList.toggle("active", name === "tryon");
+      els.wardrobePanel.classList.toggle("hidden", name !== "wardrobe");
+      els.upscalePanel.classList.toggle("hidden", name !== "upscale");
+      els.tryonPanel.classList.toggle("hidden", name !== "tryon");
     }
 
     els.wardrobeImage.addEventListener("change", () => {
@@ -913,6 +1102,13 @@
     els.upscaleBtn.addEventListener("click", sendUpscale);
     els.wardrobeTab.addEventListener("click", () => showTab("wardrobe"));
     els.upscaleTab.addEventListener("click", () => showTab("upscale"));
+    els.tryonTab.addEventListener("click", () => showTab("tryon"));
+    els.tryonBtn.addEventListener("click", sendTryon);
+    els.useWardrobeForTryonBtn.addEventListener("click", () => {
+      if (lastWardrobeOutputUrl) {
+        els.tryonGarmentUrl.value = lastWardrobeOutputUrl;
+      }
+    });
     els.useWardrobeOutputBtn.addEventListener("click", () => {
       if (lastWardrobeOutputUrl) {
         els.upscaleUrl.value = lastWardrobeOutputUrl;

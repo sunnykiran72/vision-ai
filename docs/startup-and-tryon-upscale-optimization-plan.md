@@ -28,6 +28,37 @@
 
 ---
 
+## A0. MEASURED FINDINGS (2026-06-10 spike on idle pod) — READ BEFORE A1/A2
+
+A standalone spike loaded the exact prod config (`QwenImageEditPlusPipeline.from_pretrained(...,
+torch_dtype=bfloat16).to("cuda")` + `quantize_(transformer, Float8DynamicActivationFloat8WeightConfig())`)
+and timed each step:
+- **`from_pretrained` + `.to(cuda)` (54 GB bf16 from network volume): 156 s** ← the Qwen cost
+- **`quantize_`: 0.5 s** ← effectively free
+- save fp8 state_dict: 21 s, file = **20.4 GB** (and torch warned "Unable to import torchao Tensor
+  objects" → fp8 checkpoint reload is not guaranteed clean)
+
+Disk: `/workspace` is **MooseFS network** (`mfs#eur-is-1.runpod.net`, ~0.35–0.7 GB/s). Local `/`
+overlay is **13.4 GB/s read** but only 150 GB and **ephemeral** (lost on pod recreation).
+
+**Consequences (these override the earlier A2/A3 framing):**
+- **A2 "persist fp8 to skip quantize" is POINTLESS** — quantize is 0.5 s. Drop it.
+- The Qwen cost is **loading 54 GB over the network** (156 s). A smaller **fp8 file (20 GB)** would cut
+  this to ~60 s, but reload reliability (torchao subclasses) + live-LoRA structure is unproven → spike
+  before trusting.
+- **Local-disk staging gives no cold-pod win** (a fresh autoscaled pod still reads from network once).
+  The only way to put models on fast local disk for a *cold* pod is **baking them into the Docker
+  image**.
+- The rest of boot is **compile/warm-bound** (Qwen warm 159 s + SeedVR2 prewarm 108–294 s + MiniCPM
+  ~120 s) and compile artifacts **do not persist reliably** (mega-cache proven dead; AOTInductor is the
+  only real option, risky).
+
+**Revised recommendation:** the cold boot is ~7 min compile-bound floor; don't expect
+artifact-persistence to erase it. Win via **(1) readiness gating + (2) a warm minimum pool**; treat
+load-trim (fp8 file / image-baked models) and AOTInductor as optional, measured, later steps.
+
+---
+
 ## A. Startup-time plan (ordered by value ÷ risk)
 
 ### A1. (DO FIRST — diagnostic) Split the Qwen ~5.6 min into load-vs-quantize
@@ -157,6 +188,212 @@ coordinator. Impact of the already-shipped changes and this plan:
 4. Verify `/v1/tryon` output unchanged (same pixels/quality) and run a `/v1/upscale` 2048 + 4096 to
    confirm no regression (§C).
 5. Rollback: each change is env-gated or file-scoped; revert the env/flag or restore the file.
+
+---
+
+## F. Architecture for autoscaling: fully-warm readiness, fast start, no cold first-user
+
+Goal (owner, 2026-06-10): a new server should come up **with everything preloaded AND warm**, serve a
+**fast first request** (no cold compile for user #1), and **not stall one request behind another** —
+so we can autoscale by adding identical servers in parallel.
+
+### F0. The single-GPU reality (sets the whole design)
+There is one process-wide `BoundedExecutionCoordinator` with a single `_execution_lock`
+(`app/runtime/system_coordinator.py` + `coordinator.py`). Every GPU op (Qwen gen, SeedVR2 upscale,
+fashion/person detection) serializes through it. **On one GPU this is required** — Qwen (~64 GB) +
+SeedVR2 (~24 GB) + MiniCPM (~8 GB) cannot run concurrently without OOM. So:
+- **Per pod: GPU work is serial. This is correct; keep the lock.** You cannot remove head-of-line
+  blocking *within* a pod for GPU-bound work — the GPU is one resource.
+- **Throughput/parallelism = horizontal scale** (more pods behind a load balancer). Each pod handles
+  one GPU op at a time; the fleet handles N in parallel.
+- Therefore the per-pod requirements are: (1) start fast, (2) become fully warm, (3) only accept
+  traffic once warm, (4) keep per-request latency low + the queue bounded/fair.
+
+### F1. (HIGHEST VALUE) Split liveness vs readiness — gate traffic on FULLY-WARM
+Today `main.py` warms Qwen+MiniCPM **synchronously** (uvicorn "startup complete" ~11 min) but the
+SeedVR2 prewarm is a **background daemon thread** that finishes ~5 min later (~16 min). If the load
+balancer routes on "startup complete"/`/health`, **user #1's upscale stalls on the prewarm lock**.
+This is the root of "first user is slow" and "requests stuck."
+
+Fix — two distinct probes:
+- **`/health` = liveness:** process is up (for the orchestrator to restart a dead pod). Cheap, always
+  200 once the app is running.
+- **`/ready` = readiness:** returns 200 **only when every runtime is loaded AND warm**, including
+  **SeedVR2 prewarm done**. The autoscaler/load balancer must route traffic **only to `/ready` pods.**
+
+Implementation:
+- Add a `prewarmed: bool` flag on `SeedVR2Client`, set `True` at the end of `_prewarm()` (and surface
+  it via `get_upscale_runtime_status`). Mirror "compiled+warm" flags for Qwen/MiniCPM (mostly exist
+  via `status().loaded`; add a `warm` flag set after warmup generations).
+- New route `GET /ready` → 200 iff wardrobe/tryon warm + MiniCPM ready + upscale `prewarmed`. Else 503.
+- Net effect: a new pod is "not ready" for its whole warm-up, then flips to ready **fully warm** →
+  **every request it ever serves, including the first, is fast.** No cold-compile ever hits a user.
+- This also makes A5 (prewarm timing) moot for users: traffic simply doesn't arrive until prewarm done.
+
+### F2. Start fast so "ready" comes quickly (autoscaling responsiveness)
+Readiness gating means a new pod is useless until warm, so **warm time = scale-up latency.** Cutting
+the 16 min (Part A: persist fp8 Qwen weights A2, local NVMe A4, overlap loads A6) directly improves
+autoscaling responsiveness. Target ~6–9 min. (If even faster scale-up is needed later, see F4.)
+
+### F3. Make the in-pod queue predictable (fairness + bounded wait)
+Keep the single execution lock, but tighten it for production load:
+- **FIFO fairness:** `threading.Lock` is not guaranteed FIFO; under load a request can be starved.
+  Consider a single-worker queue (`queue.Queue` + one dedicated GPU worker thread) so requests are
+  served strictly in arrival order with predictable wait = (queue_depth × op_time).
+- **Keep only GPU work under the lock.** Downloads, PIL resize, JPEG/PNG encode, Azure upload must run
+  **outside** `coordinator.run(...)` (they already are in `tryon.py`/`user_validation.py` — verify and
+  keep it that way) so the GPU isn't idle-held during I/O.
+- **One tryon = two lock acquisitions** (Qwen, then SeedVR2) with a gap where another request can
+  interleave. That's good for *fairness* but means a tryon's tail latency can include a wait between
+  its two stages. Decide policy: interleave (max fairness/throughput) vs hold-GPU-for-whole-tryon
+  (predictable single-request latency). Default: keep interleaving; revisit only if p99 suffers.
+- Bounded queue already exists (`system_queue_max_size`, default 8, with QueueFull/Timeout) — size it
+  to your latency SLO: max wait ≈ `max_queue_size × per_op_seconds`. With autoscaling, keep the queue
+  SHORT and let the autoscaler add pods when `waiting_jobs` rises (scale signal).
+
+### F4. Structural choice: replicated monolith vs split services
+- **Option 1 — replicate the monolith (RECOMMENDED to start).** Each pod runs validation+tryon+upscale,
+  identical, fully warm, behind a LB; scale by adding pods. Pros: simplest; in-process tryon→upscale
+  (no network hop / image transfer). Cons: each pod loads ALL models (~96 GB, full warm) and scales
+  coarsely; you scale the whole bundle even if only one stage is hot.
+- **Option 2 — split into dedicated fleets (do later, if a stage becomes the bottleneck).** Separate
+  Qwen-tryon pods, SeedVR2-upscale pods, validation/detection pods; each scales independently and warms
+  faster (SeedVR2 alone warms in ~1–2 min vs the 8-min Qwen stack). Cons: tryon→upscale becomes an HTTP
+  hop with a large-image transfer (latency + storage + retry/backpressure complexity).
+- **Recommendation:** ship Option 1 (readiness-gated, fast-start monolith replicas) now; it satisfies
+  "fully warm + first-user fast + autoscale in parallel." Move the **upscale** stage to its own fleet
+  (Option 2, partial) only if upscale demand decouples from tryon demand or upscale warm-time/scaling
+  needs to be independent. Keep the SeedVR2 client generic so it can be lifted into its own service
+  later without touching the tryon contract.
+
+### F5. Validation: optionally enforce exact 832×1248 (owner-approved "if needed")
+`_normalize_user_image` (user_validation.py) currently scales the **long edge to 1248** but does **not**
+crop to 2:3 — so the exact 832×1248 invariant depends on the frontend sending true 2:3. To make it
+bulletproof (and guarantee the prewarmed fast path), add a **center-crop to exact 2:3 then resize to
+exactly 832×1248** in `_normalize_user_image` only. **Do NOT touch the tryon path** — tryon keeps
+trusting the validated image (owner's explicit requirement). This guarantees every tryon input is
+exactly 832×1248 → upscale output always exactly 1820×2730 → always the prewarmed graph → never a
+recompile. Small, isolated, in the validation service only.
+
+### F6. Implementation order for Part F
+1. **F1 readiness gating** (biggest UX win; small, safe) — `prewarmed` flag + `/ready` route + point
+   the LB/autoscaler at `/ready`.
+2. **F5 validation 832×1248 enforcement** (small, isolated, removes the only shape-drift risk).
+3. **F2 = Part A fast start** (fp8 persistence, etc.) to shrink scale-up latency.
+4. **F3 fairness/queue tuning** under real load.
+5. **F4 Option-2 split** only if/when a stage's scaling decouples.
+
+---
+
+## G. Parallel startup orchestration (OOM-safe) — PLAN
+
+Goal: warm everything in parallel to cut cold start, **without** coincident VRAM peaks causing OOM.
+Today warmup is strictly sequential: Qwen (~7 min) → MiniCPM (~2.5 min) → detectors → SeedVR2 prewarm
+(~3–5 min) ≈ 13–15 min. The tasks are independent (they only share the GPU), so they can overlap.
+
+### G1. Resource model per warmup task (what each actually consumes)
+| Task | Network read | GPU compute | VRAM peak (est.) | Where it runs |
+|---|---|---|---|---|
+| Qwen `from_pretrained` (bf16) + `.to(cuda)` | **54 GB** (I/O-bound, GPU ~idle) | low | **~54–64 GB transient** (bf16 in flight) | main thread |
+| Qwen `quantize_` → fp8 | – | 0.5 s | brief bf16+fp8 overlap, then settles | main thread |
+| Qwen `compile_repeated_blocks` + warm gens | – | **high** (~2 min) | ~40 GB resident | main thread |
+| MiniCPM-V (vLLM) load + engine init | 8 GB | medium | ~8 GB | **separate subprocess** |
+| Fashion detector + SigLIP | small | low | ~2–3 GB | main thread |
+| SeedVR2 load + prewarm compile (2730) | 3 GB | **high** (inductor, ~108–294 s) | **~24 GB** (compile workspace) | daemon thread |
+
+Two key facts:
+1. The shared MooseFS volume is **~700 MB/s total** — parallel *reads* don't speed up I/O (same bytes
+   over one pipe). The win is overlapping **GPU work with another task's I/O-wait**, and overlapping
+   the two long **GPU-compute** phases (Qwen warm ≈ SeedVR2 compile).
+2. The **only dangerous coincidence** is Qwen's bf16 **load/quantize peak (~54–64 GB)** landing at the
+   same instant as SeedVR2's **compile peak (~24 GB)** → ~78–88 GB, and transient quantize spikes
+   could push toward the 96 GB ceiling. (The earlier OOM was concurrent prewarm during Qwen load,
+   with the *old* 34 GB SeedVR2 peak; the resident fix lowered it to ~24 GB, but we still must avoid
+   stacking the two peaks.)
+
+### G2. Strategy — overlap by complementary resource, stagger the one peak collision
+- **Launch all three at t0:** MiniCPM subprocess (independent), Qwen warmup (main thread), SeedVR2
+  prewarm thread. SeedVR2 + Qwen *model loads* (I/O) and MiniCPM proceed together.
+- **Gate SeedVR2's COMPILE on free-VRAM headroom** (the elegant, decoupled part): before compiling,
+  the SeedVR2 prewarm thread waits until `torch.cuda.mem_get_info()` free ≥ a configurable headroom
+  (e.g. **30 GB**), polling every ~2 s with a timeout fallback (e.g. 600 s → compile anyway). This
+  **auto-staggers** without coupling to Qwen internals: while Qwen is mid-load/quantize (low free
+  VRAM) SeedVR2 waits; the moment Qwen settles (bf16 freed after quantize, resident ~40 GB) free VRAM
+  rises past 30 GB and SeedVR2 compiles — overlapping Qwen's compile+warm phase. Worst-case coincident
+  peak ≈ 40 (Qwen) + 24 (SeedVR2) + 8 (MiniCPM) ≈ **72 GB < 96 GB**.
+- Why a dynamic headroom gate (not a fixed sleep or a Qwen-internal signal): it self-adapts to
+  whatever the real memory curve is, needs no hook into the Qwen engine, and is safe across model/size
+  changes.
+
+### G3. Implementation design (small, isolated, reversible)
+- **Orchestrator:** extend `warmup_resident_runtimes` (`app/runtime/warmup.py`) to start tasks
+  concurrently instead of calling them in series:
+  - start `warmup_upscale_runtime` **first** (it only kicks the daemon prewarm thread — non-blocking),
+  - start MiniCPM warmup (already a subprocess; don't block on it — join at the end),
+  - run Qwen wardrobe+tryon warmup on the main thread,
+  - join MiniCPM at the end so `lifespan` only returns once liveness deps are up. (SeedVR2 stays async;
+    `/ready` gates on its `prewarmed` flag — already implemented.)
+- **VRAM headroom gate in `SeedVR2Client._prewarm`:** before the compile loop, call a helper
+  `_wait_for_vram_headroom(min_free_gb, timeout_s)` that polls `torch.cuda.mem_get_info()`. Config:
+  `UPSCALE_PREWARM_MIN_FREE_GB` (default 30), `UPSCALE_PREWARM_WAIT_TIMEOUT_S` (default 600). Gate is a
+  no-op if CUDA unavailable.
+- **Error isolation (your "no errors should stop the server"):** each parallel task wrapped in
+  try/except. Non-fatal tasks (SeedVR2 prewarm, detectors) log + continue on failure (prewarm already
+  does; `/ready` simply stays false if it never warms). Qwen/MiniCPM failure remains fatal (raise) —
+  a pod that can't serve tryon should fail its boot and be recycled, not serve broken.
+- **Concurrency safety:** warmups touch different models; the only shared global is
+  `torch.backends.cudnn.benchmark` / the OptimizedModule patch (idempotent). No new locks needed; the
+  request-time system coordinator is untouched.
+- **Feature flag:** `STARTUP_PARALLEL_WARMUP=1` (default on after validation; set 0 to fall back to the
+  current sequential order instantly).
+
+### G4. Expected result & floor
+- Overlapping the two ~3–5 min GPU phases (Qwen warm ∥ SeedVR2 compile) and MiniCPM:
+  **~13–15 min → ~9–11 min** cold `/ready`.
+- The **floor** stays the serial, unavoidable parts: Qwen 54 GB network load (~156 s) + imports +
+  MiniCPM load. To go below ~9 min you'd need the load-trim (fp8-file / image-baked models, Part A0)
+  and/or AOTInductor — separate, later.
+
+### G5. Validation (mandatory before shipping — OOM history)
+1. Implement behind `STARTUP_PARALLEL_WARMUP=1`.
+2. Boot once while sampling `nvidia-smi --query-gpu=memory.used` every 1 s through the whole warmup;
+   record **peak**. Pass if peak < ~90 GB with no CUDA OOM in logs.
+3. Confirm `/ready` flips to 200 and the cold time dropped vs the 13–15 min baseline.
+4. Confirm tryon + upscale latency unchanged (2.4 s upscale, normal tryon) — parallelism must not
+   change steady-state behavior.
+5. If peak is unsafe: raise `UPSCALE_PREWARM_MIN_FREE_GB` (more conservative stagger) or flip
+   `STARTUP_PARALLEL_WARMUP=0` (full sequential) — instant rollback.
+
+### G6. Order of work
+1. VRAM headroom gate in `_prewarm` (safe even with current sequential order).
+2. Parallel orchestrator in `warmup_resident_runtimes` behind the flag.
+3. Monitored boot (G5). Tune `min_free_gb`. Ship if green.
+
+### G7. ATTEMPT #1 RESULT (2026-06-10) — FAILED on import order, NOT memory. Reverted.
+First monitored boot with `STARTUP_PARALLEL_WARMUP=1` **crash-looped**. Root cause was **not** OOM —
+the VRAM design held (peak only ~60 GB). The killer was **import order**: starting the upscale
+prewarm *first* imports the SeedVR2 CLI stack **before** Qwen, which poisons the `bitsandbytes` import
+that Qwen's PEFT LoRA loading needs:
+```
+warmup_wardrobe -> _ensure_lora -> load_lora_weights -> peft -> import bnb ->
+AttributeError: module 'bitsandbytes' has no attribute 'nn'  -> startup fails -> segfault -> loop
+```
+So the SeedVR2/ComfyUI stack and `bitsandbytes`/PEFT have an **import-order coupling**: SeedVR2 must
+not be imported before Qwen's LoRAs load. Reverted to `STARTUP_PARALLEL_WARMUP=0` (sequential, proven)
+→ service restored. The parallel code stays, flag-gated OFF.
+
+**v2 options (if we revisit — the memory design is fine, only import order needs fixing):**
+- **A (targeted):** force a clean `import bitsandbytes; import bitsandbytes.nn; import peft` at app
+  startup *before* any SeedVR2 import, so SeedVR2 loading first can't leave bnb half-initialized. Then
+  the parallel order is safe. Small; needs a monitored-boot spike to confirm it actually fixes it.
+- **B (structural):** keep Qwen warmup first (pipeline+LoRA load → bnb imported cleanly), then start
+  the SeedVR2 prewarm to overlap only Qwen's *compile+warm* phase. Needs hooking after Qwen's
+  lora-load (more invasive).
+
+**Recommendation:** since readiness gating already hides cold-boot from users, the ~3–5 min saving is
+"nice to have," and parallel proved fragile. Bank the validated Batch-1 wins; pursue parallel v2
+(Option A) only if cold-boot latency becomes a real autoscaling cost. The VRAM-headroom gate
+(`_wait_for_vram_headroom`) is harmless and stays for when/if v2 is enabled.
 
 ---
 

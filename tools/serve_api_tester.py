@@ -27,7 +27,28 @@ TOKEN_TTL_SECONDS = 3600
 TOKEN_SECRET_FILES = (
     Path.cwd() / ".env",
     ROOT.parent / ".env",
+    ROOT.parent.parent / "glamify_backend" / ".env",
+    ROOT.parent.parent / "glamify_backend" / "api" / ".env",
 )
+# Azure write creds (for the /upload helper) live in the backend repo .env.
+AZURE_CONTAINER = "wardrobe-outputs"
+AZURE_ENV_FILES = (
+    Path.cwd() / ".env",
+    ROOT.parent / ".env",
+    ROOT.parent.parent / "glamify_backend" / ".env",
+    ROOT.parent.parent / "glamify_backend" / "api" / ".env",
+)
+
+
+def _load_azure_conn() -> str:
+    value = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "").strip()
+    if value:
+        return value
+    for path in AZURE_ENV_FILES:
+        found = _read_env_value(path, "AZURE_STORAGE_CONNECTION_STRING")
+        if found:
+            return found
+    return ""
 
 
 def _b64url(data: bytes) -> str:
@@ -108,10 +129,69 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/token":
             self._token()
             return
+        if self.path.startswith("/upload"):
+            self._upload()
+            return
         if self.path.startswith("/proxy"):
             self._proxy_raw("POST")
             return
         self.send_error(404)
+
+    def _upload(self) -> None:
+        """Resize an uploaded image to a chosen 2:3-preserving long edge (rounded to /16,
+        which the Qwen pipeline requires) and push it to the public Azure container, so the
+        tryon API (URL-only) can be fed arbitrary local images. Returns the public URL + dims."""
+        try:
+            from io import BytesIO
+
+            from PIL import Image
+            from azure.storage.blob import BlobServiceClient, ContentSettings
+
+            query = parse_qs(urlparse(self.path).query)
+            long_edge = int(query.get("long_edge", ["0"])[0] or 0)
+            name = (query.get("name", ["img"])[0] or "img").replace("/", "_")[:24]
+            raw = self.rfile.read(int(self.headers.get("content-length", "0")))
+            if not raw:
+                raise ValueError("empty upload body")
+
+            image = Image.open(BytesIO(raw)).convert("RGB")
+            orig_w, orig_h = image.size
+            if long_edge and long_edge > 0:
+                if orig_w >= orig_h:
+                    new_w, new_h = long_edge, max(16, round(orig_h * long_edge / orig_w))
+                else:
+                    new_h, new_w = long_edge, max(16, round(orig_w * long_edge / orig_h))
+            else:
+                new_w, new_h = orig_w, orig_h
+            # Qwen/VAE needs dims divisible by 16.
+            new_w = max(16, (new_w // 16) * 16)
+            new_h = max(16, (new_h // 16) * 16)
+            if (new_w, new_h) != (orig_w, orig_h):
+                image = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            buf = BytesIO()
+            image.save(buf, format="JPEG", quality=95, subsampling=0)
+            data = buf.getvalue()
+
+            conn = _load_azure_conn()
+            if not conn:
+                raise ValueError("AZURE_STORAGE_CONNECTION_STRING not found in env or backend .env")
+            blob_name = f"tryon-experiments/{name}_{new_w}x{new_h}_{uuid.uuid4().hex}.jpg"
+            client = BlobServiceClient.from_connection_string(conn).get_blob_client(
+                container=AZURE_CONTAINER, blob=blob_name
+            )
+            client.upload_blob(
+                data, overwrite=True,
+                content_settings=ContentSettings(content_type="image/jpeg"),
+            )
+            self._send_json(200, {
+                "url": client.url,
+                "width": new_w, "height": new_h,
+                "orig_width": orig_w, "orig_height": orig_h,
+                "bytes": len(data),
+            })
+        except Exception as exc:
+            self._send_json(400, {"error": str(exc)})
 
     def _token(self) -> None:
         try:

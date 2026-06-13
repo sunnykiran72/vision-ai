@@ -25,6 +25,13 @@ class Settings(BaseSettings):
         default=30,
         alias="SYSTEM_QUEUE_WAIT_TIMEOUT_SECONDS",
     )
+    # Hang watchdog: if a single GPU op runs longer than this, the pod is marked degraded and
+    # dropped from /ready (recycle it). Must exceed the longest legitimate op (real tryon+upscale
+    # ~15s). 0 disables. Generous default to avoid false positives.
+    system_execution_timeout_seconds: int = Field(
+        default=300,
+        alias="SYSTEM_EXECUTION_TIMEOUT_SECONDS",
+    )
 
     jwt_access_secret: str = Field(default="", alias="JWT_ACCESS_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")

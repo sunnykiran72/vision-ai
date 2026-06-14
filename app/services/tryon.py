@@ -22,8 +22,8 @@ from app.models.tryon import TryonProduct, TryonRequest, TryonResponse, TryonRes
 from app.runtime.coordinator import QueueFullError, QueueTimeoutError
 from app.runtime.system_coordinator import get_system_execution_coordinator
 from app.runtime.tryon_runtime import get_tryon_runner
-from app.runtime.upscale_runtime import get_upscale_execution_coordinator, get_upscale_runner
 from app.services.tryon_routing import TryonRoutingDecision, resolve_tryon_route
+from app.utils.image_resize import resize_image, resize_to_long_edge
 from app.utils.media_utils import (
     build_storage_object_name,
     download_media_from_url,
@@ -56,15 +56,8 @@ def run_tryon_request(
     *,
     settings: Settings | None = None,
     user_id: str,
-    upscale_override: bool | None = None,
 ) -> TryonResponse:
     resolved_settings = settings or get_settings()
-    # Per-request `?upscale=` query param overrides the server default; omitted -> server default.
-    do_upscale = (
-        bool(resolved_settings.tryon_upscale_after_qwen)
-        if upscale_override is None
-        else bool(upscale_override)
-    )
     total_started = perf_counter()
     timings: dict[str, float] = {}
     try:
@@ -171,65 +164,21 @@ def run_tryon_request(
 
         resize_started = perf_counter()
         output_image = run_result.image.convert("RGB")
-        if output_image.size != (user_width, user_height):
-            output_image = output_image.resize(
+        out_w, out_h = output_image.size
+        # Only DOWNSCALE the generated output to the requested size — never upscale it.
+        # Enlarging a generated image just blurs/invents detail; real enlargement is the
+        # dedicated SeedVR2 upscale path's job. Gamma-correct, no sharpen on generated output.
+        if (out_w, out_h) != (user_width, user_height) and (
+            out_w * out_h > user_width * user_height
+        ):
+            output_image = resize_image(
+                output_image,
                 (user_width, user_height),
-                Image.Resampling.LANCZOS,
+                gamma_correct=True,
+                sharpen=False,
             )
         timings["output_resize_seconds"] = _elapsed(resize_started)
         qwen_output_size = {"width": int(output_image.width), "height": int(output_image.height)}
-        upscale_metadata: dict[str, object] = {
-            "enabled": do_upscale,
-            "mode": "disabled",
-            "override": upscale_override,
-            "server_default": bool(resolved_settings.tryon_upscale_after_qwen),
-        }
-        if do_upscale:
-            upscale_started = perf_counter()
-            # In-memory tensor handoff: Qwen output PIL -> SeedVR2 -> PIL, with no intermediate
-            # PNG save/reload on disk (saves the ~0.35s round-trip). Same in-memory path that
-            # /v1/upscale uses; verified pixel-identical to the file route at 2496 (compiled).
-            upscale_result = get_upscale_execution_coordinator(resolved_settings).run(
-                lambda: get_upscale_runner(resolved_settings).run_tensor(
-                    image=output_image,
-                    target_long_edge=int(resolved_settings.tryon_upscale_target_long_edge),
-                ),
-            )
-            output_image = upscale_result.image.convert("RGB")
-            before_downscale_size = {
-                "width": int(output_image.width),
-                "height": int(output_image.height),
-            }
-            output_image = _resize_to_long_edge(
-                output_image,
-                target_long_edge=int(resolved_settings.tryon_final_output_long_edge),
-            )
-            timings["seedvr2_upscale_seconds"] = float(upscale_result.wall_seconds)
-            timings["seedvr2_upscale_wall_seconds"] = _elapsed(upscale_started)
-            upscale_metadata = {
-                "enabled": True,
-                "mode": "seedvr2_inline_tensor",
-                "override": upscale_override,
-                "server_default": bool(resolved_settings.tryon_upscale_after_qwen),
-                "model_variant": upscale_result.model_variant,
-                "runner_backend": upscale_result.runner_backend,
-                "target_long_edge": int(upscale_result.target_long_edge),
-                "derived_short_edge": int(upscale_result.derived_short_edge),
-                "qwen_output_size": qwen_output_size,
-                "upscaled_size_before_downscale": before_downscale_size,
-                "final_long_edge": int(resolved_settings.tryon_final_output_long_edge),
-                "wall_seconds": float(upscale_result.wall_seconds),
-            }
-            logger.info(
-                "Try-on SeedVR2 inline upscale completed in %.3fs (%sx%s -> %sx%s -> %sx%s)",
-                timings["seedvr2_upscale_wall_seconds"],
-                qwen_output_size["width"],
-                qwen_output_size["height"],
-                before_downscale_size["width"],
-                before_downscale_size["height"],
-                output_image.width,
-                output_image.height,
-            )
 
         storage_client = AzureStorageClient(resolved_settings)
         if not storage_client.is_configured:
@@ -278,16 +227,14 @@ def run_tryon_request(
         # Per-stage latency breakdown for the whole pipeline (one line, easy to scan).
         logger.info(
             "Try-on latency breakdown (s): download=%.3f | reference=%.3f | prompt_route=%.3f | "
-            "qwen=%.3f (queued_wall=%.3f) | output_resize=%.3f | seedvr2_upscale=%.3f "
-            "(wall=%.3f) | jpeg_encode=%.3f | upload=%.3f || total=%.3f",
+            "qwen=%.3f (queued_wall=%.3f) | output_resize=%.3f | jpeg_encode=%.3f | "
+            "upload=%.3f || total=%.3f",
             timings.get("download_seconds", 0.0),
             timings.get("reference_build_seconds", 0.0),
             timings.get("prompt_route_seconds", 0.0),
             timings.get("qwen_generation_seconds", 0.0),
             timings.get("qwen_generation_queued_wall_seconds", 0.0),
             timings.get("output_resize_seconds", 0.0),
-            timings.get("seedvr2_upscale_seconds", 0.0),
-            timings.get("seedvr2_upscale_wall_seconds", 0.0),
             timings.get("output_jpeg_encode_seconds", 0.0),
             timings.get("output_upload_seconds", 0.0),
             timings.get("total_wall_seconds", 0.0),
@@ -310,17 +257,6 @@ def run_tryon_request(
                         "steps": resolved_steps,
                         "guidance_scale": resolved_guidance_scale,
                         "network_multiplier": float(resolved_settings.tryon_lora_scale),
-                        "upscale_after_qwen": do_upscale,
-                        "upscale_override": upscale_override,
-                        "upscale_server_default": bool(
-                            resolved_settings.tryon_upscale_after_qwen,
-                        ),
-                        "upscale_target_long_edge": int(
-                            resolved_settings.tryon_upscale_target_long_edge,
-                        ),
-                        "final_output_long_edge": int(
-                            resolved_settings.tryon_final_output_long_edge,
-                        ),
                     },
                     "reference": {
                         "product_reference_mode": product_reference.mode,
@@ -346,7 +282,6 @@ def run_tryon_request(
                         **run_result.metadata,
                         "wall_seconds": float(run_result.wall_seconds),
                     },
-                    "upscale": upscale_metadata,
                     "storage": {
                         "uploaded": True,
                         "url": output_url,
@@ -464,9 +399,11 @@ def _build_specialist_prompt(
     templates = tryon_constants.TRYON_PROMPT_TEMPLATE_BY_TYPE
     if routing.lora_key == "multi":
         garment_list = _build_multi_garment_list(products) or "reference garments"
-        return templates["multi"].format(garment_list=garment_list)
-    template = templates.get(routing.lora_key, templates["top"])
-    return template.format(garment=_single_garment_phrase(products))
+        base = templates["multi"].format(garment_list=garment_list)
+    else:
+        template = templates.get(routing.lora_key, templates["top"])
+        base = template.format(garment=_single_garment_phrase(products))
+    return f"{base} {tryon_constants.SHARPNESS_CLAUSE}"
 
 
 def _single_garment_phrase(products: list[TryonProduct]) -> str:
@@ -624,19 +561,12 @@ def _download_and_open_image(*, kind: str, url: str) -> _OpenedTryonImage:
 
 
 def _resize_longest_side(image: Image.Image, *, max_edge: int) -> Image.Image:
-    width, height = int(image.width), int(image.height)
-    longest = max(width, height)
-    if longest <= int(max_edge):
-        return image.convert("RGB")
-    scale = float(max_edge) / float(longest)
-    new_size = (
-        max(1, int(round(width * scale))),
-        max(1, int(round(height * scale))),
-    )
-    return image.convert("RGB").resize(new_size, Image.Resampling.LANCZOS)
+    return resize_to_long_edge(image, max_edge)
 
 
 def _resize_to_long_edge(image: Image.Image, *, target_long_edge: int) -> Image.Image:
+    # Retained for app/services/tryon_lab.py (the experimental A/B lab); the production
+    # /v1/tryon path no longer upscales, so it doesn't call this.
     width, height = int(image.width), int(image.height)
     longest = max(width, height)
     if target_long_edge <= 0 or longest <= 0 or longest == int(target_long_edge):

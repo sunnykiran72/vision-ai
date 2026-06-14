@@ -506,6 +506,14 @@
         </div>
       </div>
 
+      <div class="image-box" id="compareBox" style="display:none; margin-top:14px">
+        <header>
+          <span>Before / After — drag to compare</span>
+          <span id="compareInfo">-</span>
+        </header>
+        <div id="compareWrap" style="position:relative; max-width:480px; margin:8px auto 0; user-select:none; touch-action:none; overflow:hidden; border-radius:8px; cursor:ew-resize"></div>
+      </div>
+
       <div class="metadata-grid">
         <div class="metadata-box">
           <div class="panel-header">
@@ -653,6 +661,7 @@
       els.outputFrame.innerHTML = "<p>No output yet</p>";
       els.outputLink.classList.add("hidden");
       els.outputLink.removeAttribute("href");
+      const cmp = document.getElementById("compareBox"); if (cmp) cmp.style.display = "none";
       els.responseBox.textContent = "{}";
       els.metadataPrompt.textContent = "-";
       els.metadataTimings.textContent = "-";
@@ -760,6 +769,56 @@
       els.outputLink.href = url;
       els.outputLink.classList.remove("hidden");
       els.outputMetric.textContent = "image";
+    }
+
+    // Before/after wipe slider: base layer = AFTER (full), overlay = BEFORE clipped from the right.
+    // Output dims == input dims, so the two images overlay pixel-for-pixel.
+    function renderCompare(beforeUrl, afterUrl, info) {
+      const box = document.getElementById("compareBox");
+      const wrap = document.getElementById("compareWrap");
+      if (!beforeUrl || !afterUrl) { box.style.display = "none"; return; }
+      wrap.innerHTML = "";
+      box.style.display = "";
+      document.getElementById("compareInfo").textContent = info || "";
+
+      const after = document.createElement("img");
+      after.src = afterUrl;
+      after.draggable = false;
+      after.style.cssText = "display:block; width:100%; height:auto; pointer-events:none; -webkit-user-drag:none; user-select:none";
+      const before = document.createElement("img");
+      before.src = beforeUrl;
+      before.draggable = false;
+      before.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; object-fit:fill; clip-path:inset(0 50% 0 0); pointer-events:none; -webkit-user-drag:none; user-select:none";
+      const lblB = document.createElement("div");
+      lblB.textContent = "BEFORE";
+      lblB.style.cssText = "position:absolute; top:8px; left:8px; background:rgba(0,0,0,.6); color:#fff; font-size:10px; padding:2px 6px; border-radius:4px; pointer-events:none";
+      const lblA = document.createElement("div");
+      lblA.textContent = "AFTER";
+      lblA.style.cssText = "position:absolute; top:8px; right:8px; background:rgba(0,0,0,.6); color:#fff; font-size:10px; padding:2px 6px; border-radius:4px; pointer-events:none";
+      const handle = document.createElement("div");
+      handle.style.cssText = "position:absolute; top:0; bottom:0; left:50%; width:2px; background:#fff; box-shadow:0 0 4px rgba(0,0,0,.6); transform:translateX(-1px); pointer-events:none";
+      const knob = document.createElement("div");
+      knob.textContent = "⇄";
+      knob.style.cssText = "position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:30px; height:30px; border-radius:50%; background:#fff; color:#111; font-size:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px rgba(0,0,0,.5); pointer-events:none";
+      handle.appendChild(knob);
+      wrap.appendChild(after);
+      wrap.appendChild(before);
+      wrap.appendChild(lblB);
+      wrap.appendChild(lblA);
+      wrap.appendChild(handle);
+
+      const setPct = (clientX) => {
+        const rect = wrap.getBoundingClientRect();
+        let pct = ((clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(0, Math.min(100, pct));
+        before.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+        handle.style.left = `${pct}%`;
+      };
+      let dragging = false;
+      wrap.addEventListener("pointerdown", (e) => { dragging = true; wrap.setPointerCapture(e.pointerId); setPct(e.clientX); });
+      wrap.addEventListener("pointermove", (e) => { if (dragging) setPct(e.clientX); });
+      wrap.addEventListener("pointerup", () => { dragging = false; });
+      wrap.addEventListener("pointercancel", () => { dragging = false; });
     }
 
     async function parseResponse(response) {
@@ -1022,6 +1081,10 @@
         applyMetrics(response, body, elapsed);
         renderJson(body);
         renderOutput(body?.data?.url || "");
+        if (response.ok && body?.data?.url) {
+          renderCompare(userUrl, body.data.url,
+            `user ${userDims ? userDims.join("×") : "?"} → output ${(body?.data?.metadata?.output?.width) || "?"}×${(body?.data?.metadata?.output?.height) || "?"}`);
+        }
 
         const md = body?.data?.metadata || {};
         const out = md.output || {}, tm = md.timings || {}, up = md.upscale || {};

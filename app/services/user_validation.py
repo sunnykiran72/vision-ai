@@ -15,6 +15,7 @@ from app.constants import user_validation as constants
 from app.models.user_validation import UserValidationResponse, UserValidationResult
 from app.runtime.coordinator import QueueFullError, QueueTimeoutError
 from app.runtime.system_coordinator import get_system_execution_coordinator
+from app.utils.image_resize import downscale_photo
 
 JPEG_CONTENT_TYPE = "image/jpeg"
 
@@ -207,7 +208,7 @@ def _center_crop_to_aspect_and_resize(
         top = (height - crop_height) // 2
         image = image.crop((left, top, left + crop_width, top + crop_height))
     if image.size != (target_width, target_height):
-        image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        image = downscale_photo(image, (target_width, target_height))
     return image
 
 

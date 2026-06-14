@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from PIL import Image, ImageChops
+
+from app.utils.image_resize import resize_image
+from app.utils.image_resize import resize_to_height as shared_resize_to_height
 
 OUTER_PADDING = 12
 INNER_PADDING = 0
@@ -30,16 +32,7 @@ class TryonCollageResult:
 
 
 def resize_to_height(image: Image.Image, target_height: int) -> Image.Image:
-    if image.height == target_height:
-        return image
-    ratio = float(target_height) / float(image.height)
-    target_width = max(1, int(round(float(image.width) * ratio)))
-    resample: Any
-    if hasattr(Image, "Resampling"):
-        resample = Image.Resampling.LANCZOS
-    else:
-        resample = 3
-    return image.resize((target_width, target_height), resample)
+    return shared_resize_to_height(image, target_height)
 
 
 def normalize_product_type(product_type: str) -> str:
@@ -224,12 +217,9 @@ def _fit_to_box(image: Image.Image, max_width: int, max_height: int) -> Image.Im
     target_height = max(1, int(round(float(image.height) * scale)))
     if target_width == image.width and target_height == image.height:
         return image
-    resample: Any
-    if hasattr(Image, "Resampling"):
-        resample = Image.Resampling.LANCZOS
-    else:
-        resample = 3
-    return image.resize((target_width, target_height), resample)
+    # Gamma-correct only — no sharpen (matches the previous plain-Lanczos behaviour,
+    # the sole change here is linear-light resampling).
+    return resize_image(image, (target_width, target_height), sharpen=False)
 
 
 def _build_horizontal_collage(

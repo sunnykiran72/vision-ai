@@ -506,7 +506,12 @@ def test_specialist_prompt_uses_trigger_caption_and_product_detail() -> None:
         "outer layer or jacket completely if present. Strictly preserve the person's face, "
         "identity, hair, skin tone, body shape, body size, body proportions, hands, pose and the "
         "background exactly; change only the top garment, fitting it naturally to the body with "
-        "realistic drape."
+        "realistic drape. "
+        "Render the entire image in sharp focus with crisp, high-resolution detail and absolutely "
+        "no blur, softness, or smudging anywhere. Keep the person's face perfectly sharp and "
+        "identical to image 1, preserving the exact facial features, expression and natural skin "
+        "texture; keep the hair, skin, garment fabric, and background equally sharp and clearly "
+        "detailed."
     )
 
 
@@ -616,7 +621,12 @@ def test_specialist_prompt_multi_lists_each_category() -> None:
         "outer layer or jacket completely if present. Strictly preserve the person's face, "
         "identity, hair, skin tone, body shape, body size, body proportions, hands, pose and the "
         "background exactly; change only the specified garments, fitting them naturally to the "
-        "body with realistic drape."
+        "body with realistic drape. "
+        "Render the entire image in sharp focus with crisp, high-resolution detail and absolutely "
+        "no blur, softness, or smudging anywhere. Keep the person's face perfectly sharp and "
+        "identical to image 1, preserving the exact facial features, expression and natural skin "
+        "texture; keep the hair, skin, garment fabric, and background equally sharp and clearly "
+        "detailed."
     )
 
 

@@ -78,7 +78,9 @@ def test_user_validation_success_resizes_validates_and_uploads(
     assert response.status == 200
     assert response.data is not None
     assert response.data.image.startswith("https://blob.example.com/user-images/inputs/")
-    assert fake_detector.calls[0]["size"] == (936, 1248)
+    # Validation center-crops to the fixed try-on input (880x1328, both /16) and runs
+    # person detection on that normalized image.
+    assert fake_detector.calls[0]["size"] == (880, 1328)
     assert fake_storage.uploads[0]["content_type"] == "image/jpeg"
     assert fake_storage.uploads[0]["container"] == "user-images"
     assert fake_storage.uploads[0]["object_name"].startswith("inputs/user-123/")
@@ -88,7 +90,7 @@ def test_user_validation_success_resizes_validates_and_uploads(
     assert metadata["person_detection"]["model"] == constants.PERSON_DETECTION_MODEL_ID
     assert metadata["blur"]["score"] == 100.0
     assert metadata["sizes"]["input"] == {"width": 900, "height": 1200}
-    assert metadata["sizes"]["normalized"] == {"width": 936, "height": 1248}
+    assert metadata["sizes"]["normalized"] == {"width": 880, "height": 1328}
     assert metadata["timings"]["upload_seconds"] >= 0
 
 

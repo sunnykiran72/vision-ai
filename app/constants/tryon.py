@@ -66,6 +66,17 @@ TRYON_PROMPT_TEMPLATE_BY_TYPE = {
     ),
 }
 
+# Appended to every specialist try-on prompt. Pushes the model toward a fully sharp result with no
+# blur anywhere, and an identical, in-focus face (the most-noticed failure at 880x1328). Kept AFTER
+# the garment instructions so the baked-in LoRA trigger stays first. Easy to A/B by editing or
+# blanking this one string.
+SHARPNESS_CLAUSE = (
+    "Render the entire image in sharp focus with crisp, high-resolution detail and absolutely no "
+    "blur, softness, or smudging anywhere. Keep the person's face perfectly sharp and identical to "
+    "image 1, preserving the exact facial features, expression and natural skin texture; keep the "
+    "hair, skin, garment fabric, and background equally sharp and clearly detailed."
+)
+
 # Section labels used when building the multi garment list.
 TRYON_GARMENT_LABEL_BY_TYPE = {
     "top": "Top",
